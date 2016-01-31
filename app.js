@@ -228,22 +228,12 @@ tls.createServer(options, function (socket) {
         broadcast('UserState', u, socket);
     });
 
+    connection.sendMessage('Version', { version: encodeVersion(1, 2, 4), release: 'Node.js-client', os: 'Node.js', os_version: process.version });
+
+    connection.on('version', function(m) {
+    });
+
     connection.on('authenticate', function(m) {
-        //connection.sendMessage('Reject', { reason: 'omg test'});
-
-        connection.sendMessage('CryptSetup', {
-        });
-
-        connection.sendMessage('SuggestConfig', {
-            version: encodeVersion(1, 2, 4)
-        });
-
-        connection.sendMessage('ServerConfig', {
-            max_bandwidth: 128000/*,
-            allow_html: true,
-            welcome_text: 'welcome_text'*/
-        });
-
         var nuser = {u: {}};
         var new_session = users.push(nuser);
         new_session--;
@@ -261,43 +251,59 @@ tls.createServer(options, function (socket) {
         users[user].u.priority_speaker = null;
         users[user].u.hash = socket.getPeerCertificate().fingerprint.replace(/\:/g, '');
         users[user].u.channel_id = 30;
-        connection.sendMessage('UserState', users[user].u);
 
-        broadcast('UserState', users[user].u, socket);
+        //connection.sendMessage('Reject', { reason: 'omg test'});
+
+        connection.sendMessage('CryptSetup', {
+        });
+
+        connection.sendMessage('CodecVersion', {
+            alpha: -2147483637,
+            beta: -2147483632,
+            prefer_alpha: true,
+            opus: true
+        });
 
         db.each("SELECT * FROM channels WHERE server_id=1", function(err, row) {
             connection.sendMessage('ChannelState', {
                 channel_id: row.channel_id,
                 parent: row.parent_id,
                 name: row.name,
-                description: '',
+                description: null,
                 temporary: false
             });
         }, function(err, num_row) {
             connection.sendMessage('UserState', users[user].u);
 
             users.forEach(function (row) {
+                connection.sendMessage('UserState', row.u);
                 if (row.u.session !== (user + 100)) {
                     connection.sendMessage('UserState', row.u);
                 }
             });
-        });
 
-        connection.sendMessage('CodecVersion', {
-            alpha: -2147483637,
-            beta: -2147483632,
-            opus: true
-        });
+            broadcast('UserState', users[user].u, socket);
 
-        connection.sendMessage('ServerSync', {
-            session: users[user].u.session,
-            //max_bandwidth: 128000,
-            welcome_text: 'hello world'
-        });
-    });
+            connection.sendMessage('ServerSync', {
+                session: users[user].u.session,
+                max_bandwidth: 140000,
+                welcome_text: 'hello world'
+            });
 
-    connection.on('version', function(m) {
-        connection.sendMessage('Version', { version: encodeVersion(1, 2, 4), release: 'Node.js-client', os: 'Node.js', os_version: process.version });
+            connection.sendMessage('ServerConfig', {
+                max_bandwidth: null,
+                welcome_text: null,
+                allow_html: true,
+                message_length: 5000,
+                image_message_length: 1131072
+            });
+
+            connection.sendMessage('SuggestConfig', {
+                version: 66052,
+                positional: null,
+                push_to_talk: null
+            });
+        });
     });
 
     connection.on('cryptSetup', function(m) {
@@ -324,7 +330,6 @@ server_udp.on('listening', function () {
 var bufferpack = require('bufferpack');
 var buffer;
 server_udp.on('message', function (message, remote) {
-    console.log(message);
     if (message.length !== 12) {
         return;
     }
