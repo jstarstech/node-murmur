@@ -1,0 +1,4 @@
+syntax: regexp
+^node_modules/*$
+^ssl/*$
+^mumble-server.sqlite$

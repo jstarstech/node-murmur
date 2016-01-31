@@ -1,0 +1,18 @@
+{
+  "name": "murmur",
+  "version": "0.0.1",
+  "description": "",
+  "main": "app.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "author": "",
+  "license": "BSD-2-Clause",
+  "dependencies": {
+    "async": "~1.5.2",
+    "protobufjs": "~5.0.1",
+    "hipack": "~1.0.4",
+    "jitterbuffer": "~0.1.9",
+    "sqlite3": "~3.1.1"
+  }
+}
