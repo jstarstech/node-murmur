@@ -11,6 +11,15 @@ var sqlite3 = require('sqlite3').verbose();
 var db = new sqlite3.Database('./mumble-server.sqlite');
 var util = require('./lib/util');
 
+/*var sjcl = require('sjcl');
+var h = sjcl.codec.hex;
+var aes = new sjcl.cipher.aes(h.toBits('000102030405060708090A0B0C0D0E0F')); // key
+var iv = h.toBits('050102030405060708090A0B0C0D0E0F'); // iv
+
+var enc = sjcl.mode.ocb2.encrypt(aes, '99999', iv);
+var dec = sjcl.mode.ocb2.decrypt(aes, enc, iv);
+console.log(enc, dec);*/
+
 function encrypt(plaintext) {
     var cipher = crypto.createCipher('aes-128-cbc', secret);
     cipher.setAutoPadding(false);
@@ -63,6 +72,8 @@ function encodeVersion(major, minor, patch) {
 
 var users = [];
 var clients = [];
+var base64_decode = require('base64').decode;
+var base64_encode = require('base64').encode;
 
 // Start a TCP Server
 tls.createServer(options, function (socket) {
@@ -97,6 +108,18 @@ tls.createServer(options, function (socket) {
         });
     }
 
+    // Send a message to all clients
+    var broadcast_audio = function (packet, source_session_id) {
+        clients.forEach(function (client) {
+            // Don't want to send it to sender
+            if (client.mumble.session_id === source_session_id) {
+                return;
+            }
+
+            client.write(packet);
+        });
+    };
+
     socket.on('error', function(){
         broadcast('UserRemove', {session: users[user].u.session}, socket);
         delete users[user];
@@ -104,6 +127,10 @@ tls.createServer(options, function (socket) {
         clients.splice(clients.indexOf(socket), 1);
         connection.disconnect();
     });
+
+/*    socket.on('data', function(a){
+     console.log(a)
+     });*/
 
     socket.on('close', function(){
         broadcast('UserRemove', {session: users[user].u.session}, socket);
@@ -132,6 +159,7 @@ tls.createServer(options, function (socket) {
     });
 
     connection.on('permissionQuery', function(m) {
+        console.log(m);
         var permissions = util.writePermissions({
             Write: 0x01,
             Traverse: 0x02,
@@ -141,7 +169,12 @@ tls.createServer(options, function (socket) {
             TextMessage: 0x200
         });
 
-        connection.sendMessage('PermissionQuery', {permissions: permissions});
+        connection.sendMessage('PermissionQuery', {
+            channel_id: m.channel_id,
+            //permissions: permissions,
+            permissions: 134742798,
+            flush: false
+        });
     });
 
     connection.on('userState', function(m) {
@@ -239,7 +272,7 @@ tls.createServer(options, function (socket) {
         new_session--;
 
         user = new_session;
-        users[user].socket = socket;
+        users[user].socket = users[user].u.session;
         users[user].u.name = m.username;
         users[user].u.session = new_session + 100;
         users[user].u.recording = null;
@@ -252,25 +285,45 @@ tls.createServer(options, function (socket) {
         users[user].u.hash = socket.getPeerCertificate().fingerprint.replace(/\:/g, '');
         users[user].u.channel_id = 30;
 
+        connection.broadcast_audio = broadcast_audio;
+        connection.session_id = users[user].u.session;
+
         //connection.sendMessage('Reject', { reason: 'omg test'});
 
-        connection.sendMessage('CryptSetup', {
+        connection.on('cryptSetup', function(m) {
+            console.log(m);
         });
 
-        connection.sendMessage('CodecVersion', {
-            alpha: -2147483637,
-            beta: -2147483632,
+        var buf1 = new Buffer('08dvzUdMpExPo9KUxgVYwg==', 'base64');
+        var buf2 = new Buffer('vL2nJU/FURMQIu0HF0XlOA==', 'base64');
+        var buf3 = new Buffer('KhXfffcCF/+WGd8YojVbSQ==', 'base64');
+        connection.sendMessage('CryptSetup', {
+            key: buf1,
+            client_nonce: buf2,
+            server_nonce: buf3
+        });
+
+        /*connection.sendMessage('CodecVersion', {
+            alpha: -2147483632,
+            //beta: -2147483637,
+            beta: 0,
             prefer_alpha: true,
             opus: true
-        });
+        });*/
 
         db.each("SELECT * FROM channels WHERE server_id=1", function(err, row) {
+            if (row.channel_id == 0) {
+                row.parent_id = null;
+            }
             connection.sendMessage('ChannelState', {
                 channel_id: row.channel_id,
                 parent: row.parent_id,
-                name: row.name,
-                description: null,
-                temporary: false
+                name: row.name
+            });
+            connection.sendMessage('PermissionQuery', {
+                channel_id: row.channel_id,
+                permissions: 134742798,
+                flush: false
             });
         }, function(err, num_row) {
             connection.sendMessage('UserState', users[user].u);
@@ -287,7 +340,12 @@ tls.createServer(options, function (socket) {
             connection.sendMessage('ServerSync', {
                 session: users[user].u.session,
                 max_bandwidth: 140000,
-                welcome_text: 'hello world'
+                welcome_text: 'hello world',
+                permissions: {
+                    "low": 134742798,
+                    "high": 0,
+                    "unsigned": true
+                }
             });
 
             connection.sendMessage('ServerConfig', {
@@ -304,13 +362,6 @@ tls.createServer(options, function (socket) {
                 push_to_talk: null
             });
         });
-    });
-
-    connection.on('cryptSetup', function(m) {
-        console.log(m)
-    });
-
-    connection.on('userState', function(m) {
     });
 
     connection.on('ping', function(m) {
