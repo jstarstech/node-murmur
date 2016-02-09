@@ -44,8 +44,23 @@ function encodeVersion(major, minor, patch) {
 
 var users = [];
 var clients = [];
-var base64_decode = require('base64').decode;
-var base64_encode = require('base64').encode;
+var server = {};
+
+db.all("SELECT * FROM config WHERE server_id = $server_id", {
+    $server_id: 1
+}, function(err, rows) {
+    if (err) {
+        console.log(err);
+        return;
+    }
+
+    rows.forEach(function(row, i) {
+        if (/^\d+$/.test(row.value)) {
+            row.value = parseInt(row.value);
+        }
+        server[row.key] = row.value;
+    });
+});
 
 // Start a TCP Server
 tls.createServer(options, function (socket) {
@@ -293,8 +308,8 @@ tls.createServer(options, function (socket) {
 
             connection.sendMessage('ServerSync', {
                 session: users[user].u.session,
-                max_bandwidth: 140000,
-                welcome_text: 'hello world',
+                max_bandwidth: server.bandwidth,
+                welcome_text: server.welcometext,
                 permissions: {
                     "low": 134742798,
                     "high": 0,
