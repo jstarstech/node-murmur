@@ -397,3 +397,37 @@ server_udp.on('message', function (message, remote) {
 });
 
 server_udp.bind(PORT);
+
+
+var app = require('express')();
+var http = require('http').Server(app);
+var io = require('socket.io')(http);
+
+app.get('/', function(req, res){
+    res.sendFile(__dirname + '/index.html');
+});
+
+// Send a message to all clients
+function broadcast1(type, message) {
+    clients.forEach(function (client) {
+        client.mumble.sendMessage(type, message);
+    });
+}
+
+io.on('connection', function(socket){
+    socket.on('chat message', function(msg){
+        io.emit('chat message', msg);
+        var ms = {
+            //actor: users[user].u.session,
+            session: [],
+            //channel_id: m.channel_id,
+            tree_id: [],
+            message: msg
+        };
+        broadcast1('TextMessage', ms);
+    });
+});
+
+http.listen(64761, function(){
+    console.log('listening on *:3000');
+});

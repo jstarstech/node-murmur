@@ -13,6 +13,8 @@
     "protobufjs": "~5.0.1",
     "hipack": "~1.0.4",
     "jitterbuffer": "~0.1.9",
-    "sqlite3": "~3.1.1"
+    "sqlite3": "~3.1.1",
+    "express": "~4.13.4",
+    "socket.io": "~1.4.5"
   }
 }
