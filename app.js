@@ -319,7 +319,7 @@ function start_server(server_id) {
                         max_bandwidth: null,
                         welcome_text: null,
                         allow_html: true,
-                        message_length: 5000,
+                        message_length: server.textmessagelength,
                         image_message_length: 1131072
                     });
 
