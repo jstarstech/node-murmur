@@ -262,7 +262,7 @@ function start_server(server_id) {
                 users[user].u.suppress = null;
                 users[user].u.priority_speaker = null;
                 users[user].u.hash = socket.getPeerCertificate().fingerprint.replace(/\:/g, '');
-                users[user].u.channel_id = 30;
+                users[user].u.channel_id = server.defaultchannel;
 
                 connection.broadcast_audio = broadcast_audio;
                 connection.session_id = users[user].u.session;
