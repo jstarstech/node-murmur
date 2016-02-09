@@ -272,7 +272,7 @@ tls.createServer(options, function (socket) {
         new_session--;
 
         user = new_session;
-        users[user].socket = users[user].u.session;
+        users[user].socket = socket;
         users[user].u.name = m.username;
         users[user].u.session = new_session + 100;
         users[user].u.recording = null;
