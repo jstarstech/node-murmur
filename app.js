@@ -16,7 +16,7 @@ function start_server(server_id) {
     var server = {};
 
     db.all("SELECT * FROM config WHERE server_id = $server_id", {
-        $server_id: 1
+        $server_id: server_id
     }, function (err, rows) {
         if (err) {
             console.log(err);
@@ -275,21 +275,30 @@ function start_server(server_id) {
                     server_nonce: new Buffer('KhXfffcCF/+WGd8YojVbSQ==', 'base64')
                 });
 
-                db.each("SELECT * FROM channels WHERE server_id=1", function (err, row) {
-                    if (row.channel_id == 0) {
-                        row.parent_id = null;
+                db.all("SELECT * FROM channels WHERE server_id = $server_id", {
+                    $server_id: server_id
+                }, function (err, rows) {
+                    if (err) {
+                        console.log(err);
+                        return;
                     }
-                    connection.sendMessage('ChannelState', {
-                        channel_id: row.channel_id,
-                        parent: row.parent_id,
-                        name: row.name
+
+                    rows.forEach(function(row) {
+                        if (row.channel_id == 0) {
+                            row.parent_id = null;
+                        }
+                        connection.sendMessage('ChannelState', {
+                            channel_id: row.channel_id,
+                            parent: row.parent_id,
+                            name: row.name
+                        });
+                        connection.sendMessage('PermissionQuery', {
+                            channel_id: row.channel_id,
+                            permissions: 134742798,
+                            flush: false
+                        });
                     });
-                    connection.sendMessage('PermissionQuery', {
-                        channel_id: row.channel_id,
-                        permissions: 134742798,
-                        flush: false
-                    });
-                }, function (err, num_row) {
+
                     connection.sendMessage('UserState', users[user].u);
 
                     users.forEach(function (row) {
@@ -396,4 +405,5 @@ function start_server(server_id) {
         });
     }
 }
+
 start_server(1);
