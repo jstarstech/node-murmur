@@ -5,39 +5,11 @@ var MumbleConnection = require('./lib/MumbleConnection');
 var MumbleSocket = require('./lib/MumbleSocket');
 var tls = require('tls');
 var fs = require('fs');
-var crypto = require('crypto');
-var secret = crypto.randomBytes(24);
 var sqlite3 = require('sqlite3').verbose();
 var db = new sqlite3.Database('./mumble-server.sqlite');
 var util = require('./lib/util');
+var bufferpack = require('bufferpack');
 
-/*var sjcl = require('sjcl');
-var h = sjcl.codec.hex;
-var aes = new sjcl.cipher.aes(h.toBits('000102030405060708090A0B0C0D0E0F')); // key
-var iv = h.toBits('050102030405060708090A0B0C0D0E0F'); // iv
-
-var enc = sjcl.mode.ocb2.encrypt(aes, '99999', iv);
-var dec = sjcl.mode.ocb2.decrypt(aes, enc, iv);
-console.log(enc, dec);*/
-
-function encrypt(plaintext) {
-    var cipher = crypto.createCipher('aes-128-cbc', secret);
-    cipher.setAutoPadding(false);
-    var ciphertext = '';
-    for (var i=0; i < plaintext.length; i+=16) {
-        ciphertext += cipher.update(plaintext.substr(i, i+16), 'utf8', 'base64');
-    }
-    return ciphertext.toString('base64');
-}
-
-function decrypt(ciphertext) {
-    var decipher = crypto.createDecipher('aes-128-cbc', secret);
-    decipher.setAutoPadding(false);
-    var plaintext = decipher.update(ciphertext, 'base64', 'utf8');
-    return plaintext.toString('utf8');
-}
-
-var ciphertext = encrypt(new Buffer("The secret crow ate the pie of the bear.").toString('utf8'));
 
 var options = {
     // Chain of certificate autorities
@@ -128,10 +100,6 @@ tls.createServer(options, function (socket) {
         connection.disconnect();
     });
 
-/*    socket.on('data', function(a){
-     console.log(a)
-     });*/
-
     socket.on('close', function(){
         broadcast('UserRemove', {session: users[user].u.session}, socket);
         delete users[user];
@@ -171,8 +139,7 @@ tls.createServer(options, function (socket) {
 
         connection.sendMessage('PermissionQuery', {
             channel_id: m.channel_id,
-            //permissions: permissions,
-            permissions: 134742798,
+            permissions: permissions,
             flush: false
         });
     });
@@ -265,6 +232,8 @@ tls.createServer(options, function (socket) {
 
     connection.on('version', function(m) {
     });
+    connection.on('cryptSetup', function(m) {
+    });
 
     connection.on('authenticate', function(m) {
         var nuser = {u: {}};
@@ -290,26 +259,11 @@ tls.createServer(options, function (socket) {
 
         //connection.sendMessage('Reject', { reason: 'omg test'});
 
-        connection.on('cryptSetup', function(m) {
-            console.log(m);
-        });
-
-        var buf1 = new Buffer('08dvzUdMpExPo9KUxgVYwg==', 'base64');
-        var buf2 = new Buffer('vL2nJU/FURMQIu0HF0XlOA==', 'base64');
-        var buf3 = new Buffer('KhXfffcCF/+WGd8YojVbSQ==', 'base64');
         connection.sendMessage('CryptSetup', {
-            key: buf1,
-            client_nonce: buf2,
-            server_nonce: buf3
+            key: new Buffer('08dvzUdMpExPo9KUxgVYwg==', 'base64'),
+            client_nonce: new Buffer('vL2nJU/FURMQIu0HF0XlOA==', 'base64'),
+            server_nonce: new Buffer('KhXfffcCF/+WGd8YojVbSQ==', 'base64')
         });
-
-        /*connection.sendMessage('CodecVersion', {
-            alpha: -2147483632,
-            //beta: -2147483637,
-            beta: 0,
-            prefer_alpha: true,
-            opus: true
-        });*/
 
         db.each("SELECT * FROM channels WHERE server_id=1", function(err, row) {
             if (row.channel_id == 0) {
@@ -378,8 +332,7 @@ var server_udp = dgram.createSocket('udp4');
 server_udp.on('listening', function () {
     var address = server_udp.address();
 });
-var bufferpack = require('bufferpack');
-var buffer;
+
 server_udp.on('message', function (message, remote) {
     if (message.length !== 12) {
         return;
@@ -387,7 +340,7 @@ server_udp.on('message', function (message, remote) {
 
     var q = bufferpack.unpack('>id', message, 0);
 
-    buffer = bufferpack.pack(">idiii", [0x00010204, q[1], clients.length, 5, 128000]);
+    var buffer = bufferpack.pack(">idiii", [0x00010204, q[1], clients.length, 5, 128000]);
 
     server_udp.send(buffer, 0, buffer.length, remote.port, remote.address, function(err, bytes){
         if (err){
