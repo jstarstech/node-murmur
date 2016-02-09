@@ -5,6 +5,7 @@ var MumbleConnection = require('./lib/MumbleConnection');
 var MumbleSocket = require('./lib/MumbleSocket');
 var tls = require('tls');
 var fs = require('fs');
+var os = require('os');
 var sqlite3 = require('sqlite3').verbose();
 var db = new sqlite3.Database('./mumble-server.sqlite');
 var util = require('./lib/util');
@@ -56,13 +57,6 @@ function start_server(server_id) {
             }
 
             var user;
-
-            /*console.log("Cipher: ",  socket.getCipher());
-             console.log("Address: ", socket.address());
-             console.log("Remote address: ", socket.remoteAddress);
-             console.log("Remote port: ", socket.remotePort);*/
-            //console.log("getPeerCertificate: ", socket.getPeerCertificate().fingerprint.replace(/\:/g, ''));
-
             var connection = new MumbleConnection(socket, {});
 
             socket.name = socket.remoteAddress + ":" + socket.remotePort;
@@ -235,9 +229,9 @@ function start_server(server_id) {
 
             connection.sendMessage('Version', {
                 version: util.encodeVersion(1, 2, 4),
-                release: 'Node.js-client',
-                os: 'Node.js',
-                os_version: process.version
+                release: '1.2.4-0.1' + os.platform(),
+                os: os.platform(),
+                os_version: os.release()
             });
 
             connection.on('version', function (m) {
@@ -379,7 +373,7 @@ function start_server(server_id) {
             res.sendFile(__dirname + '/index.html');
         });
 
-// Send a message to all clients
+        // Send a message to all clients
         function broadcast1(type, message) {
             clients.forEach(function (client) {
                 client.mumble.sendMessage(type, message);
