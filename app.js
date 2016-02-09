@@ -94,7 +94,9 @@ function start_server(server_id) {
             };
 
             socket.on('error', function () {
-                broadcast('UserRemove', {session: users[user].u.session}, socket);
+                if (typeof users[user] !== 'undefined') {
+                    broadcast('UserRemove', {session: users[user].u.session}, socket);
+                }
                 delete users[user];
                 user = false;
                 clients.splice(clients.indexOf(socket), 1);
@@ -102,7 +104,9 @@ function start_server(server_id) {
             });
 
             socket.on('close', function () {
-                broadcast('UserRemove', {session: users[user].u.session}, socket);
+                if (typeof users[user] !== 'undefined') {
+                    broadcast('UserRemove', {session: users[user].u.session}, socket);
+                }
                 delete users[user];
                 user = false;
                 clients.splice(clients.indexOf(socket), 1);
