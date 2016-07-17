@@ -3,6 +3,7 @@
 
 var MumbleConnection = require('./lib/MumbleConnection');
 var MumbleSocket = require('./lib/MumbleSocket');
+var User = require('./lib/User');
 var tls = require('tls');
 var fs = require('fs');
 var os = require('os');
@@ -14,6 +15,7 @@ var bufferpack = require('bufferpack');
 function start_server(server_id) {
     var users = [];
     var clients = [];
+    var channels = [];
     var server = {};
 
     db.all("SELECT * FROM config WHERE server_id = $server_id", {
@@ -33,6 +35,10 @@ function start_server(server_id) {
             }
             server[row.key] = row.value;
         });
+
+        if (typeof server.port == 'undefined') {
+            server.port = 64760;
+        }
 
         start()
     });
@@ -261,6 +267,8 @@ function start_server(server_id) {
                 connection.broadcast_audio = broadcast_audio;
                 connection.session_id = users[user].u.session;
 
+                socket.user = users[user];
+
                 //connection.sendMessage('Reject', { reason: 'omg test'});
 
                 connection.sendMessage('CryptSetup', {
@@ -334,10 +342,7 @@ function start_server(server_id) {
             connection.on('ping', function (m) {
                 connection.sendMessage('Ping', {timestamp: m.timestamp});
             });
-        }).listen(64760);
-
-        var PORT = 64760;
-        var HOST = '0.0.0.0';
+        }).listen(server.port);
 
         var dgram = require('dgram');
         var server_udp = dgram.createSocket('udp4');
@@ -362,7 +367,7 @@ function start_server(server_id) {
             });
         });
 
-        server_udp.bind(PORT);
+        server_udp.bind(server.port);
 
 
         var app = require('express')();
@@ -394,8 +399,8 @@ function start_server(server_id) {
             });
         });
 
-        http.listen(64761, function () {
-            console.log('listening on *:3000');
+        http.listen(64762, function () {
+            console.log('listening on *:64762');
         });
     }
 }
