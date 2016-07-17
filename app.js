@@ -88,7 +88,10 @@ function start_server(server_id) {
                     if (client.mumble.session_id === source_session_id) {
                         return;
                     }
-
+                    if (client.user.u.self_deaf) {
+                        return;
+                    }
+                    
                     client.write(packet);
                 });
             };
