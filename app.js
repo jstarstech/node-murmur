@@ -12,6 +12,7 @@ var db = new sqlite3.Database('./mumble-server.sqlite');
 var util = require('./lib/util');
 var user = require('./lib/User');
 var bufferpack = require('bufferpack');
+var async = require('async');
 
 function start_server(server_id) {
     var clients = [];
@@ -65,9 +66,10 @@ function start_server(server_id) {
             }
 
             var uid;
-            var connection = new MumbleConnection(socket, {});
+            var connection = new MumbleConnection(socket);
 
             var boadcast_listener = function broadcast(type, message, sender_uid) {
+                connection.sendMessage(type, message);
                 if (sender_uid != uid) {
                     connection.sendMessage(type, message);
                 }
@@ -121,7 +123,7 @@ function start_server(server_id) {
 
                     muser.users.forEach(function (row) {
                         if (m.channel_id.indexOf(row.channel_id) > -1 && row.session !== muser.getUser(uid).session) {
-                            row.socket.mumble.sendMessage('TextMessage', ms);
+                            muser.emit('broadcast', 'TextMessage', ms, uid);
                         }
                     });
                 }
@@ -145,6 +147,7 @@ function start_server(server_id) {
             });
 
             connection.on('userState', function (m) {
+                console.log(m);
                 muser.updateUser(uid, m);
 
                 connection.sendMessage('UserState', muser.getUser(uid));
@@ -158,21 +161,14 @@ function start_server(server_id) {
                 os_version: os.release()
             });
 
-            connection.on('version', function (m) {
-            });
-            connection.on('cryptSetup', function (m) {
-            });
-
             connection.on('authenticate', function (m) {
-                var auser = {
+                uid = muser.addUser({
                     name: m.username,
                     hash: socket.getPeerCertificate().fingerprint.replace(/\:/g, ''),
                     channel_id: server.defaultchannel
-                };
+                });
 
-                uid = muser.addUser(auser);
-
-                //connection.sendMessage('Reject', { reason: 'omg test'});
+                connection.sendMessage('Reject', { reason: 'omg test'});
 
                 connection.sendMessage('CryptSetup', {
                     key: new Buffer('08dvzUdMpExPo9KUxgVYwg==', 'base64'),
@@ -204,16 +200,15 @@ function start_server(server_id) {
                         });
                     });
 
-                    connection.sendMessage('UserState', muser.getUser(uid));
-
-                    muser.users.forEach(function (row) {
-                        if (row.session !== (muser.getUser(uid).session + 100)) {
-                            connection.sendMessage('UserState', row);
-                        }
-                    });
-
+                    // connection.sendMessage('UserState', muser.getUser(uid));
                     muser.emit('broadcast', 'UserState', muser.getUser(uid), uid);
 
+                    muser.users.forEach(function (row) {
+                        muser.emit('broadcast', 'UserState', row, uid);
+                        if (row.session !== (muser.getUser(uid).session + 100)) {
+
+                        }
+                    });
                     connection.sendMessage('ServerSync', {
                         session: muser.getUser(uid).session,
                         max_bandwidth: server.bandwidth,
@@ -224,7 +219,6 @@ function start_server(server_id) {
                             "unsigned": true
                         }
                     });
-
                     connection.sendMessage('ServerConfig', {
                         max_bandwidth: null,
                         welcome_text: null,
@@ -232,7 +226,6 @@ function start_server(server_id) {
                         message_length: server.textmessagelength,
                         image_message_length: 1131072
                     });
-
                     connection.sendMessage('SuggestConfig', {
                         version: 66052,
                         positional: null,
@@ -296,7 +289,8 @@ function start_server(server_id) {
                     tree_id: [],
                     message: msg
                 };
-                broadcast1('TextMessage', ms);
+
+                muser.emit('broadcast', 'TextMessage', ms, 0);
             });
         });
 
