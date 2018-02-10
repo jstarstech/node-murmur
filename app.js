@@ -175,6 +175,18 @@ function start_server(server_id) {
                 os: os.platform(),
                 os_version: os.release()
             });
+            connection.sendMessage('ServerConfig', {
+                max_bandwidth: null,
+                welcome_text: null,
+                allow_html: true,
+                message_length: server.textmessagelength,
+                image_message_length: 1131072
+            });
+            connection.sendMessage('SuggestConfig', {
+                version: 66052,
+                positional: null,
+                push_to_talk: null
+            });
 
             connection.on('authenticate', function (m) {
                 uid = muser.addUser({
@@ -183,8 +195,8 @@ function start_server(server_id) {
                     channel_id: server.defaultchannel
                 });
 
-                /*connection.sendMessage('Reject', { reason: 'omg test'});
-                return;*/
+                // connection.sendMessage('Reject', { reason: 'omg test'});
+                // return;
 
                 connection.sendMessage('CryptSetup', {
                     key: new Buffer('08dvzUdMpExPo9KUxgVYwg==', 'base64'),
@@ -222,11 +234,12 @@ function start_server(server_id) {
                     });
 
                     // connection.sendMessage('UserState', muser.getUser(uid));
-                    muser.emit('broadcast', 'UserState', muser.getUser(uid), uid);
+                    // muser.emit('broadcast', 'UserState', muser.getUser(uid), uid);
 
                     muser.users.forEach(function (row) {
                         connection.sendMessage('UserState', row);
                     });
+
                     connection.sendMessage('ServerSync', {
                         session: muser.getUser(uid).session,
                         max_bandwidth: server.bandwidth,
@@ -236,18 +249,6 @@ function start_server(server_id) {
                             "high": 0,
                             "unsigned": true
                         }
-                    });
-                    connection.sendMessage('ServerConfig', {
-                        max_bandwidth: null,
-                        welcome_text: null,
-                        allow_html: true,
-                        message_length: server.textmessagelength,
-                        image_message_length: 1131072
-                    });
-                    connection.sendMessage('SuggestConfig', {
-                        version: 66052,
-                        positional: null,
-                        push_to_talk: null
                     });
                 });
             });
