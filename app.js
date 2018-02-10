@@ -90,7 +90,7 @@ function start_server(server_id) {
 
             muser.on('broadcast_audio', broadcast_audio);
 
-            socket.on('error', function () {
+            connection.on('error', function () {
                 if (muser.getUser(uid)) {
                     muser.emit('broadcast', 'UserRemove', {session: muser.getUser(uid).session}, uid);
                     muser.deleteUser(uid);
