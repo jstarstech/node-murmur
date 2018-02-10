@@ -2,8 +2,8 @@
 "use strict";
 
 var MumbleConnection = require('./lib/MumbleConnection');
-var MumbleSocket = require('./lib/MumbleSocket');
 // var User = require('./lib/User');
+
 var tls = require('tls');
 var fs = require('fs');
 var os = require('os');
@@ -100,14 +100,15 @@ function start_server(server_id) {
                 connection.disconnect();
             });
 
-            socket.on('close', function () {
+            connection.on('disconnect', function () {
+                console.log('User disconnected');
+
                 if (muser.getUser(uid)) {
                     muser.emit('broadcast', 'UserRemove', {session: muser.getUser(uid).session}, uid);
                     muser.deleteUser(uid);
                 }
                 muser.removeListener('broadcast', boadcast_listener);
                 muser.removeListener('broadcast_audio', broadcast_audio);
-                connection.disconnect();
             });
 
             connection.on('textMessage', function (m) {
