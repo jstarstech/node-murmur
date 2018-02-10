@@ -117,12 +117,7 @@ function start_server(server_id) {
             });
         },
         function start(cb) {
-            var muser = new user({});
-            setInterval(function () {
-                muser.users.forEach(function (i) {
-                    // log.info(i);
-                })
-            }, 2000);
+            var Users = new user({});
 
             var options = {
                 key: server.key,
@@ -147,55 +142,55 @@ function start_server(server_id) {
                     }
                 };
 
-                muser.on('broadcast', boadcast_listener);
+                Users.on('broadcast', boadcast_listener);
 
                 var broadcast_audio = function (packet, source_session_id) {
-                    if (muser.getUser(uid).session_id === source_session_id) {
+                    if (Users.getUser(uid).session_id === source_session_id) {
                         return;
                     }
-                    if (muser.getUser(uid).self_deaf) {
+                    if (Users.getUser(uid).self_deaf) {
                         return;
                     }
 
                     connection.write(packet);
                 };
 
-                muser.on('broadcast_audio', broadcast_audio);
+                Users.on('broadcast_audio', broadcast_audio);
 
                 connection.on('error', function () {
-                    if (muser.getUser(uid)) {
-                        muser.emit('broadcast', 'UserRemove', {session: muser.getUser(uid).session}, uid);
-                        muser.deleteUser(uid);
+                    if (Users.getUser(uid)) {
+                        Users.emit('broadcast', 'UserRemove', {session: Users.getUser(uid).session}, uid);
+                        Users.deleteUser(uid);
                     }
-                    muser.removeListener('broadcast', boadcast_listener);
-                    muser.removeListener('broadcast_audio', broadcast_audio);
+                    Users.removeListener('broadcast', boadcast_listener);
+                    Users.removeListener('broadcast_audio', broadcast_audio);
                     connection.disconnect();
                 });
 
                 connection.on('disconnect', function () {
                     log.info('User disconnected');
 
-                    if (muser.getUser(uid)) {
-                        muser.emit('broadcast', 'UserRemove', {session: muser.getUser(uid).session}, uid);
-                        muser.deleteUser(uid);
+                    if (Users.getUser(uid)) {
+                        Users.emit('broadcast', 'UserRemove', {session: Users.getUser(uid).session}, uid);
+                        Users.deleteUser(uid);
                     }
-                    muser.removeListener('broadcast', boadcast_listener);
-                    muser.removeListener('broadcast_audio', broadcast_audio);
+                    Users.removeListener('broadcast', boadcast_listener);
+                    Users.removeListener('broadcast_audio', broadcast_audio);
                 });
 
                 connection.on('textMessage', function (m) {
                     if (m.channel_id.length) { // A message to the channel
                         var ms = {
-                            actor: muser.getUser(uid).session,
+                            actor: Users.getUser(uid).session,
                             session: [],
                             channel_id: m.channel_id,
                             treeId: [],
                             message: m.message
                         };
 
-                        muser.users.forEach(function (row) {
-                            if (m.channel_id.indexOf(row.channel_id) > -1 && row.session !== muser.getUser(uid).session) {
-                                muser.emit('broadcast', 'TextMessage', ms, uid);
+                        Users.users.forEach(function (row) {
+                            if (m.channel_id.indexOf(row.channel_id) > -1 && row.session !== Users.getUser(uid).session) {
+                                Users.emit('broadcast', 'TextMessage', ms, uid);
                             }
                         });
                     }
@@ -228,9 +223,9 @@ function start_server(server_id) {
                         delete m['selfMute'];
                     }
 
-                    muser.updateUser(uid, m);
+                    Users.updateUser(uid, m);
 
-                    muser.emit('broadcast', 'UserState', m, uid);
+                    Users.emit('broadcast', 'UserState', m, uid);
                 });
 
                 connection.sendMessage('Version', {
@@ -241,7 +236,7 @@ function start_server(server_id) {
                 });
 
                 connection.on('authenticate', function (m) {
-                    uid = muser.addUser({
+                    uid = Users.addUser({
                         name: m.username,
                         hash: socket.getPeerCertificate().fingerprint.replace(/\:/g, ''),
                         channel_id: server.defaultchannel
@@ -284,15 +279,15 @@ function start_server(server_id) {
                         flush: false
                     });
 
-                    // connection.sendMessage('UserState', muser.getUser(uid));
-                    // muser.emit('broadcast', 'UserState', muser.getUser(uid), uid);
+                    // connection.sendMessage('UserState', Users.getUser(uid));
+                    // Users.emit('broadcast', 'UserState', Users.getUser(uid), uid);
 
-                    muser.users.forEach(function (row) {
-                        connection.sendMessage('UserState', row);
+                    _.each(Users.users, function (item, key, list) {
+                        connection.sendMessage('UserState', item);
                     });
 
                     connection.sendMessage('ServerSync', {
-                        session: muser.getUser(uid).session,
+                        session: Users.getUser(uid).session,
                         maxBandwidth: server.bandwidth,
                         welcomeText: server.welcometext,
                         permissions: {
@@ -372,7 +367,7 @@ function start_server(server_id) {
                         message: msg
                     };
 
-                    muser.emit('broadcast', 'TextMessage', ms, 0);
+                    Users.emit('broadcast', 'TextMessage', ms, 0);
                 });
             });
 
