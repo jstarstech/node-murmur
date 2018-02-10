@@ -1,18 +1,25 @@
 
 "use strict";
 
+var log4js = require('log4js');
+var log4js_extend = require("log4js-extend");
+log4js.configure('./config/log4js.json');
+log4js_extend(log4js, {
+    path: __dirname,
+    format: "at @name (@file:@line:@column)"
+});
+var log = log4js.getLogger();
+
 var MumbleConnection = require('./lib/MumbleConnection');
 // var User = require('./lib/User');
 
 var tls = require('tls');
-var fs = require('fs');
 var os = require('os');
 var sqlite3 = require('sqlite3').verbose();
 var db = new sqlite3.Database('./db/mumble-server.sqlite');
 var util = require('./lib/util');
 var user = require('./lib/User');
 var bufferpack = require('bufferpack');
-var async = require('async');
 
 function start_server(server_id) {
     var clients = [];
@@ -23,7 +30,7 @@ function start_server(server_id) {
         $server_id: server_id
     }, function (err, rows) {
         if (err) {
-            console.log(err);
+            log.error(err);
             return;
         }
 
@@ -31,13 +38,14 @@ function start_server(server_id) {
             if (/^\d+$/.test(row.value)) {
                 row.value = parseInt(row.value);
             }
-            if (row.value == 'true' || row.value == 'false') {
+
+            if (row.value === 'true' || row.value === 'false') {
                 row.value = (row.value === 'true');
             }
             server[row.key] = row.value;
         });
 
-        if (typeof server.port == 'undefined') {
+        if (typeof server.port === 'undefined') {
             server.port = 64761;
         }
 
@@ -48,7 +56,7 @@ function start_server(server_id) {
         var muser = new user({});
         setInterval(function () {
             muser.users.forEach(function (i) {
-                // console.log(i);
+                 // log.info(i);
             })
         }, 2000);
 
@@ -60,9 +68,9 @@ function start_server(server_id) {
         };
 
         tls.createServer(options, function (socket) {
-            console.log("TLS Client authorized:", socket.authorized);
+            log.info("TLS Client authorized:", socket.authorized);
             if (!socket.authorized) {
-                console.log("TLS authorization error:", socket.authorizationError);
+                log.info("TLS authorization error:", socket.authorizationError);
             }
 
             var uid;
@@ -70,7 +78,7 @@ function start_server(server_id) {
 
             var boadcast_listener = function (type, message, sender_uid) {
                 connection.sendMessage(type, message);
-                if (sender_uid != uid) {
+                if (sender_uid !== uid) {
                     connection.sendMessage(type, message);
                 }
             };
@@ -101,7 +109,7 @@ function start_server(server_id) {
             });
 
             connection.on('disconnect', function () {
-                console.log('User disconnected');
+                log.info('User disconnected');
 
                 if (muser.getUser(uid)) {
                     muser.emit('broadcast', 'UserRemove', {session: muser.getUser(uid).session}, uid);
@@ -188,15 +196,15 @@ function start_server(server_id) {
                     $server_id: server_id
                 }, function (err, rows) {
                     if (err) {
-                        console.log(err);
+                        log.error(err);
                         return;
                     }
 
                     rows.forEach(function(row) {
-                        if (row.channel_id == 0) {
+                        if (row.channel_id === 0) {
                             row.parent_id = 0;
                         }
-                        console.log({
+                        log.info({
                             channel_id: row.channel_id,
                             parent: row.parent_id,
                             name: row.name
@@ -304,7 +312,7 @@ function start_server(server_id) {
         });
 
         http.listen(64762, function () {
-            console.log('listening on *:64762');
+            log.info('listening on *:64762');
         });
     }
 }

@@ -1,0 +1,9 @@
+{
+    "appenders": [{
+        "type": "file",
+        "filename": "./logs/main.log",
+        "maxLogSize": 104857600,
+        "backups": 10,
+        "pollInterval": 15   
+    }]
+}
