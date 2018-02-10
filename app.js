@@ -21,6 +21,7 @@ var db = new sqlite3.Database('./db/mumble-server.sqlite');
 var util = require('./lib/util');
 var user = require('./lib/User');
 var bufferpack = require('bufferpack');
+var _ = require('underscore');
 
 function getChannels(server_id, callback) {
     var channels = {};
@@ -74,7 +75,7 @@ function getChannels(server_id, callback) {
 
 function start_server(server_id) {
     var clients = [];
-    var channels = [];
+    var channels = {};
     var server = {};
 
     async.waterfall([
@@ -262,66 +263,57 @@ function start_server(server_id) {
                         opus: true
                     });
 
-                    db.all("SELECT * FROM channels WHERE server_id = $server_id", {
-                        $server_id: server_id
-                    }, function (err, rows) {
-                        if (err) {
-                            log.error(err);
-                            return;
+                    _.each(channels, function (channel, key, list) {
+                        connection.sendMessage('ChannelState', {
+                            channelId: channel.channel_id,
+                            parent: channel.parent_id,
+                            name: channel.name,
+                            links: [],
+                            description: channel.description,
+                            linksAdd: [],
+                            linksRemove: [],
+                            temporary: false,
+                            position: channel.position,
+                            descriptionHash: null
+                        });
+                    });
+
+                    connection.sendMessage('PermissionQuery', {
+                        channelId: 0,
+                        permissions: 134742798,
+                        flush: false
+                    });
+
+                    // connection.sendMessage('UserState', muser.getUser(uid));
+                    // muser.emit('broadcast', 'UserState', muser.getUser(uid), uid);
+
+                    muser.users.forEach(function (row) {
+                        connection.sendMessage('UserState', row);
+                    });
+
+                    connection.sendMessage('ServerSync', {
+                        session: muser.getUser(uid).session,
+                        maxBandwidth: server.bandwidth,
+                        welcomeText: server.welcometext,
+                        permissions: {
+                            low: 134217738,
+                            high: 0,
+                            unsigned: true
                         }
+                    });
 
-                        rows.forEach(function(row) {
-                            connection.sendMessage('ChannelState', {
-                                channelId: row.channel_id,
-                                parent: row.parent_id,
-                                name: row.name,
-                                links: [],
-                                description: null,
-                                linksAdd: [],
-                                linksRemove: [],
-                                temporary: false,
-                                position: 0,
-                                descriptionHash: null
-                            });
-                        });
+                    connection.sendMessage('ServerConfig', {
+                        maxBandwidth: null,
+                        welcomeText: null,
+                        allowHtml: true,
+                        messageLength: server.textmessagelength,
+                        imageMessageLength: 1131072
+                    });
 
-                        connection.sendMessage('PermissionQuery', {
-                            channelId: 0,
-                            permissions: 134742798,
-                            flush: false
-                        });
-
-                        // connection.sendMessage('UserState', muser.getUser(uid));
-                        // muser.emit('broadcast', 'UserState', muser.getUser(uid), uid);
-
-                        muser.users.forEach(function (row) {
-                            connection.sendMessage('UserState', row);
-                        });
-
-                        connection.sendMessage('ServerSync', {
-                            session: muser.getUser(uid).session,
-                            maxBandwidth: server.bandwidth,
-                            welcomeText: server.welcometext,
-                            permissions: {
-                                low: 134217738,
-                                high: 0,
-                                unsigned: true
-                            }
-                        });
-
-                        connection.sendMessage('ServerConfig', {
-                            maxBandwidth: null,
-                            welcomeText: null,
-                            allowHtml: true,
-                            messageLength: server.textmessagelength,
-                            imageMessageLength: 1131072
-                        });
-
-                        connection.sendMessage('SuggestConfig', {
-                            version: 66052,
-                            positional: null,
-                            pushToTalk: null
-                        });
+                    connection.sendMessage('SuggestConfig', {
+                        version: 66052,
+                        positional: null,
+                        pushToTalk: null
                     });
                 });
                 connection.on('ping', function (m) {
