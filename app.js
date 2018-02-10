@@ -125,7 +125,7 @@ function start_server(server_id) {
                         actor: muser.getUser(uid).session,
                         session: [],
                         channel_id: m.channel_id,
-                        tree_id: [],
+                        treeId: [],
                         message: m.message
                     };
 
@@ -148,7 +148,7 @@ function start_server(server_id) {
                 });
 
                 connection.sendMessage('PermissionQuery', {
-                    channel_id: m.channel_id,
+                    channelId: m.channel_id,
                     permissions: permissions,
                     flush: false
                 });
@@ -173,19 +173,7 @@ function start_server(server_id) {
                 version: util.encodeVersion(1, 2, 4),
                 release: '1.2.4-0.1' + os.platform(),
                 os: os.platform(),
-                os_version: os.release()
-            });
-            connection.sendMessage('ServerConfig', {
-                max_bandwidth: null,
-                welcome_text: null,
-                allow_html: true,
-                message_length: server.textmessagelength,
-                image_message_length: 1131072
-            });
-            connection.sendMessage('SuggestConfig', {
-                version: 66052,
-                positional: null,
-                push_to_talk: null
+                osVersion: os.release()
             });
 
             connection.on('authenticate', function (m) {
@@ -200,8 +188,15 @@ function start_server(server_id) {
 
                 connection.sendMessage('CryptSetup', {
                     key: new Buffer('08dvzUdMpExPo9KUxgVYwg==', 'base64'),
-                    client_nonce: new Buffer('vL2nJU/FURMQIu0HF0XlOA==', 'base64'),
-                    server_nonce: new Buffer('KhXfffcCF/+WGd8YojVbSQ==', 'base64')
+                    clientNonce: new Buffer('vL2nJU/FURMQIu0HF0XlOA==', 'base64'),
+                    serverNonce: new Buffer('KhXfffcCF/+WGd8YojVbSQ==', 'base64')
+                });
+
+                connection.sendMessage('CodecVersion', {
+                    alpha: -2147483637,
+                    beta: 0,
+                    preferAlpha: true,
+                    opus: true
                 });
 
                 db.all("SELECT * FROM channels WHERE server_id = $server_id", {
@@ -213,24 +208,24 @@ function start_server(server_id) {
                     }
 
                     rows.forEach(function(row) {
-                        if (row.channel_id === 0) {
-                            row.parent_id = 0;
-                        }
-                        log.info({
-                            channel_id: row.channel_id,
-                            parent: row.parent_id,
-                            name: row.name
-                        });
                         connection.sendMessage('ChannelState', {
-                            channel_id: row.channel_id,
+                            channelId: row.channel_id,
                             parent: row.parent_id,
-                            name: row.name
+                            name: row.name,
+                            links: [],
+                            description: null,
+                            linksAdd: [],
+                            linksRemove: [],
+                            temporary: false,
+                            position: 0,
+                            descriptionHash: null
                         });
-                        connection.sendMessage('PermissionQuery', {
-                            channel_id: row.channel_id,
-                            permissions: 134742798,
-                            flush: false
-                        });
+                    });
+
+                    connection.sendMessage('PermissionQuery', {
+                        channelId: 0,
+                        permissions: 134742798,
+                        flush: false
                     });
 
                     // connection.sendMessage('UserState', muser.getUser(uid));
@@ -242,13 +237,27 @@ function start_server(server_id) {
 
                     connection.sendMessage('ServerSync', {
                         session: muser.getUser(uid).session,
-                        max_bandwidth: server.bandwidth,
-                        welcome_text: server.welcometext,
+                        maxBandwidth: server.bandwidth,
+                        welcomeText: server.welcometext,
                         permissions: {
-                            "low": 134742798,
-                            "high": 0,
-                            "unsigned": true
+                            low: 134217738,
+                            high: 0,
+                            unsigned: true
                         }
+                    });
+
+                    connection.sendMessage('ServerConfig', {
+                        maxBandwidth: null,
+                        welcomeText: null,
+                        allowHtml: true,
+                        messageLength: server.textmessagelength,
+                        imageMessageLength: 1131072
+                    });
+
+                    connection.sendMessage('SuggestConfig', {
+                        version: 66052,
+                        positional: null,
+                        pushToTalk: null
                     });
                 });
             });
