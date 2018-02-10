@@ -8,7 +8,7 @@ var tls = require('tls');
 var fs = require('fs');
 var os = require('os');
 var sqlite3 = require('sqlite3').verbose();
-var db = new sqlite3.Database('./mumble-server.sqlite');
+var db = new sqlite3.Database('./db/mumble-server.sqlite');
 var util = require('./lib/util');
 var user = require('./lib/User');
 var bufferpack = require('bufferpack');
@@ -44,21 +44,21 @@ function start_server(server_id) {
         start()
     });
 
-    var muser = new user({});
-
     function start() {
+        var muser = new user({});
+        setInterval(function () {
+            muser.users.forEach(function (i) {
+                // console.log(i);
+            })
+        }, 2000);
+
         var options = {
-            // Private key of the server
             key: server.key,
-            // Public key of the server (certificate key)
             cert: server.certificate,
-            // Request a certificate from a connecting client
             requestCert: server.certrequired,
-            // Automatically reject clients with invalide certificates.
             rejectUnauthorized: false
         };
 
-        // Start a TCP Server
         tls.createServer(options, function (socket) {
             console.log("TLS Client authorized:", socket.authorized);
             if (!socket.authorized) {
@@ -68,7 +68,7 @@ function start_server(server_id) {
             var uid;
             var connection = new MumbleConnection(socket);
 
-            var boadcast_listener = function broadcast(type, message, sender_uid) {
+            var boadcast_listener = function (type, message, sender_uid) {
                 connection.sendMessage(type, message);
                 if (sender_uid != uid) {
                     connection.sendMessage(type, message);
@@ -78,7 +78,6 @@ function start_server(server_id) {
             muser.on('broadcast', boadcast_listener);
 
             var broadcast_audio = function (packet, source_session_id) {
-                // Don't want to send it to sender
                 if (muser.getUser(uid).session_id === source_session_id) {
                     return;
                 }
@@ -147,11 +146,18 @@ function start_server(server_id) {
             });
 
             connection.on('userState', function (m) {
-                console.log(m);
+                if (m.selfMute) {
+                    m.self_mute = m.selfMute;
+                    delete m['selfMute'];
+                }
+                if (m.selfDeaf) {
+                    m.self_deaf = m.selfDeaf;
+                    delete m['selfMute'];
+                }
+
                 muser.updateUser(uid, m);
 
-                connection.sendMessage('UserState', muser.getUser(uid));
-                muser.emit('broadcast', 'UserState', muser.getUser(uid), uid);
+                muser.emit('broadcast', 'UserState', m, uid);
             });
 
             connection.sendMessage('Version', {
@@ -168,7 +174,8 @@ function start_server(server_id) {
                     channel_id: server.defaultchannel
                 });
 
-                connection.sendMessage('Reject', { reason: 'omg test'});
+                /*connection.sendMessage('Reject', { reason: 'omg test'});
+                return;*/
 
                 connection.sendMessage('CryptSetup', {
                     key: new Buffer('08dvzUdMpExPo9KUxgVYwg==', 'base64'),
@@ -186,8 +193,13 @@ function start_server(server_id) {
 
                     rows.forEach(function(row) {
                         if (row.channel_id == 0) {
-                            row.parent_id = null;
+                            row.parent_id = 0;
                         }
+                        console.log({
+                            channel_id: row.channel_id,
+                            parent: row.parent_id,
+                            name: row.name
+                        });
                         connection.sendMessage('ChannelState', {
                             channel_id: row.channel_id,
                             parent: row.parent_id,
@@ -204,10 +216,7 @@ function start_server(server_id) {
                     muser.emit('broadcast', 'UserState', muser.getUser(uid), uid);
 
                     muser.users.forEach(function (row) {
-                        muser.emit('broadcast', 'UserState', row, uid);
-                        if (row.session !== (muser.getUser(uid).session + 100)) {
-
-                        }
+                        connection.sendMessage('UserState', row);
                     });
                     connection.sendMessage('ServerSync', {
                         session: muser.getUser(uid).session,
@@ -233,7 +242,6 @@ function start_server(server_id) {
                     });
                 });
             });
-
             connection.on('ping', function (m) {
                 connection.sendMessage('Ping', {timestamp: m.timestamp});
             });

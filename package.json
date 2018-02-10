@@ -9,11 +9,12 @@
   "author": "",
   "license": "BSD-2-Clause",
   "dependencies": {
-    "async": "^2.1.4",
-    "express": "~4.13.4",
+    "async": "^2.6.0",
+    "bufferpack": "0.0.6",
+    "express": "^4.13.4",
     "jitterbuffer": "^0.1.12",
-    "protobufjs": "^6.6.3",
-    "socket.io": "~1.4.5",
-    "sqlite3": "^3.1.8"
+    "protobufjs": "^6.8.4",
+    "socket.io": "^1.4.8",
+    "sqlite3": "^3.1.13"
   }
 }
