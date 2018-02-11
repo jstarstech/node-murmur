@@ -179,22 +179,24 @@ function start_server(server_id) {
                 });
 
                 connection.on('textMessage', function (m) {
-                    if (m.channelId.length) { // A message to the channel
-                        var ms = {
-                            actor: Users.getUser(uid).session,
-                            session: [],
-                            channelId: m.channelId,
-                            treeId: [],
-                            message: m.message
-                        };
-
-                        _.each(Users.users, function (item, key, list) {
-                            connection.sendMessage('UserState', item);
-                            if (m.channelId.indexOf(item.channelId) > -1 && item.session !== Users.getUser(uid).session) {
-                                Users.emit('broadcast', 'TextMessage', ms, uid);
-                            }
-                        });
+                    if (m.channelId.length === 0) {
+                        return;
                     }
+
+                    var ms = {
+                        actor: Users.getUser(uid).session,
+                        session: [],
+                        channelId: m.channelId,
+                        treeId: [],
+                        message: m.message
+                    };
+
+                    _.each(Users.users, function (item, key, list) {
+                        connection.sendMessage('UserState', item);
+                        if (m.channelId.indexOf(item.channelId) > -1 && item.session !== Users.getUser(uid).session) {
+                            Users.emit('broadcast', 'TextMessage', ms, uid);
+                        }
+                    });
                 });
 
                 connection.on('permissionQuery', function (m) {
