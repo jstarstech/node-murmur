@@ -152,22 +152,22 @@ function start_server(server_id) {
                     if (Users.getUser(uid).sessionId === source_session_id) {
                         return;
                     }
-                    if (Users.getUser(uid).selfDeaf) {
+                    if (Users.getUser(uid).selfDeaf === true) {
                         return;
                     }
 
-                    connection.write(packet);
+                    connection.socket.write(packet);
                 };
 
-                Users.on('broadcast_audio', broadcast_audio);
+                connection.on('broadcast_audio', broadcast_audio);
 
                 connection.on('error', function () {
                     if (Users.getUser(uid)) {
                         Users.emit('broadcast', 'UserRemove', {session: Users.getUser(uid).session}, uid);
                         Users.deleteUser(uid);
                     }
-                    Users.removeListener('broadcast', boadcast_listener);
-                    Users.removeListener('broadcast_audio', broadcast_audio);
+                    connection.removeListener('broadcast', boadcast_listener);
+                    connection.removeListener('broadcast_audio', broadcast_audio);
                     connection.disconnect();
                 });
 
@@ -281,6 +281,8 @@ function start_server(server_id) {
                         hash: socket.getPeerCertificate().fingerprint.replace(/:/g, ''),
                         channelId: server.defaultchannel
                     });
+
+                    connection.sessionId = Users.getUser(uid).session;
 
                     // connection.sendMessage('Reject', { reason: 'omg test'});
                     // return;
