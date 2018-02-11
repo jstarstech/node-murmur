@@ -17,6 +17,7 @@
     "log4js-extend": "^0.2.1",
     "protobufjs": "^6.8.4",
     "socket.io": "^1.4.8",
-    "sqlite3": "^3.1.13"
+    "sqlite3": "^3.1.13",
+    "underscore": "^1.8.3"
   }
 }

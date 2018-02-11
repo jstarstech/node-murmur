@@ -145,10 +145,10 @@ function start_server(server_id) {
                 Users.on('broadcast', boadcast_listener);
 
                 var broadcast_audio = function (packet, source_session_id) {
-                    if (Users.getUser(uid).session_id === source_session_id) {
+                    if (Users.getUser(uid).sessionId === source_session_id) {
                         return;
                     }
-                    if (Users.getUser(uid).self_deaf) {
+                    if (Users.getUser(uid).selfDeaf) {
                         return;
                     }
 
@@ -179,17 +179,18 @@ function start_server(server_id) {
                 });
 
                 connection.on('textMessage', function (m) {
-                    if (m.channel_id.length) { // A message to the channel
+                    if (m.channelId.length) { // A message to the channel
                         var ms = {
                             actor: Users.getUser(uid).session,
                             session: [],
-                            channel_id: m.channel_id,
+                            channelId: m.channelId,
                             treeId: [],
                             message: m.message
                         };
 
-                        Users.users.forEach(function (row) {
-                            if (m.channel_id.indexOf(row.channel_id) > -1 && row.session !== Users.getUser(uid).session) {
+                        _.each(Users.users, function (item, key, list) {
+                            connection.sendMessage('UserState', item);
+                            if (m.channelId.indexOf(item.channelId) > -1 && item.session !== Users.getUser(uid).session) {
                                 Users.emit('broadcast', 'TextMessage', ms, uid);
                             }
                         });
@@ -207,25 +208,63 @@ function start_server(server_id) {
                     });
 
                     connection.sendMessage('PermissionQuery', {
-                        channelId: m.channel_id,
+                        channelId: m.channelId,
                         permissions: permissions,
                         flush: false
                     });
                 });
 
                 connection.on('userState', function (m) {
-                    if (m.selfMute) {
-                        m.self_mute = m.selfMute;
-                        delete m['selfMute'];
-                    }
-                    if (m.selfDeaf) {
-                        m.self_deaf = m.selfDeaf;
-                        delete m['selfMute'];
+                    var user = Users.getUser(uid);
+
+                    var update_user_state = {
+                        session: user.session,
+                        actor: user.session
+                    };
+
+                    if (m.hasOwnProperty('deaf') && m.deaf !== user.deaf) {
+                        update_user_state.deaf = m.deaf;
                     }
 
-                    Users.updateUser(uid, m);
+                    if (m.hasOwnProperty('mute') && m.mute !== user.mute) {
+                        update_user_state.mute = m.mute;
+                    }
 
-                    Users.emit('broadcast', 'UserState', m, uid);
+                    if (m.hasOwnProperty('recording') && m.recording !== user.recording) {
+                        update_user_state.recording = m.recording;
+                    }
+
+                    if (m.hasOwnProperty('suppress') && m.suppress !== user.suppress) {
+                        update_user_state.suppress = m.suppress;
+                    }
+
+                    if (m.hasOwnProperty('selfMute') && m.selfMute !== user.selfMute) {
+                        update_user_state.selfMute = m.selfMute;
+                    }
+
+                    if (m.hasOwnProperty('selfDeaf') && m.selfDeaf !== user.selfDeaf) {
+                        update_user_state.selfDeaf = m.selfDeaf;
+                    }
+
+                    if (m.hasOwnProperty('channelId') && m.channelId !== user.channelId) {
+                        update_user_state.channelId = m.channelId;
+                    }
+
+                    if (m.hasOwnProperty('prioritySpeaker') && m.prioritySpeaker !== user.prioritySpeaker) {
+                        update_user_state.prioritySpeaker = m.prioritySpeaker;
+                    }
+
+                    if (m.hasOwnProperty('pluginIdentity') && m.pluginIdentity !== user.pluginIdentity) {
+                        update_user_state.pluginIdentity = m.pluginIdentity;
+                    }
+
+                    if (m.hasOwnProperty('pluginContext') && m.pluginContext !== user.pluginContext) {
+                        update_user_state.pluginContext = m.pluginContext;
+                    }
+
+                    Users.updateUser(uid, update_user_state);
+
+                    Users.emit('broadcast', 'UserState', update_user_state, uid);
                 });
 
                 connection.sendMessage('Version', {
@@ -238,8 +277,8 @@ function start_server(server_id) {
                 connection.on('authenticate', function (m) {
                     uid = Users.addUser({
                         name: m.username,
-                        hash: socket.getPeerCertificate().fingerprint.replace(/\:/g, ''),
-                        channel_id: server.defaultchannel
+                        hash: socket.getPeerCertificate().fingerprint.replace(/:/g, ''),
+                        channelId: server.defaultchannel
                     });
 
                     // connection.sendMessage('Reject', { reason: 'omg test'});
@@ -285,6 +324,8 @@ function start_server(server_id) {
                     _.each(Users.users, function (item, key, list) {
                         connection.sendMessage('UserState', item);
                     });
+
+                    Users.emit('broadcast', 'UserState', Users.getUser(uid), uid);
 
                     connection.sendMessage('ServerSync', {
                         session: Users.getUser(uid).session,
@@ -362,7 +403,7 @@ function start_server(server_id) {
                     var ms = {
                         //actor: users[user].u.session,
                         session: [],
-                        //channel_id: m.channel_id,
+                        //channelId: m.channelId,
                         tree_id: [],
                         message: msg
                     };
