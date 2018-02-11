@@ -135,7 +135,7 @@ function start_server(server_id) {
                 var connection = new MumbleConnection(socket);
 
                 var boadcast_listener = function (type, message, sender_uid) {
-                    if (sender_uid === uid) {
+                    if (type !== 'UserState' && sender_uid === uid) {
                         return;
                     }
 
