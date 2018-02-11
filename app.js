@@ -132,7 +132,7 @@ function start_server(server_id) {
                 }
 
                 var uid;
-                var connection = new MumbleConnection(socket);
+                var connection = new MumbleConnection(socket, Users);
 
                 var boadcast_listener = function (type, message, sender_uid) {
                     if (type !== 'UserState' && sender_uid === uid) {
@@ -149,7 +149,7 @@ function start_server(server_id) {
                 Users.on('broadcast', boadcast_listener);
 
                 var broadcast_audio = function (packet, source_session_id) {
-                    if (Users.getUser(uid).sessionId === source_session_id) {
+                    if (Users.getUser(uid).session === source_session_id) {
                         return;
                     }
                     if (Users.getUser(uid).selfDeaf === true) {
@@ -159,15 +159,15 @@ function start_server(server_id) {
                     connection.socket.write(packet);
                 };
 
-                connection.on('broadcast_audio', broadcast_audio);
+                Users.on('broadcast_audio', broadcast_audio);
 
                 connection.on('error', function () {
                     if (Users.getUser(uid)) {
                         Users.emit('broadcast', 'UserRemove', {session: Users.getUser(uid).session}, uid);
                         Users.deleteUser(uid);
                     }
-                    connection.removeListener('broadcast', boadcast_listener);
-                    connection.removeListener('broadcast_audio', broadcast_audio);
+                    Users.removeListener('broadcast', boadcast_listener);
+                    Users.removeListener('broadcast_audio', broadcast_audio);
                     connection.disconnect();
                 });
 
