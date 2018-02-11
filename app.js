@@ -74,7 +74,6 @@ function getChannels(server_id, callback) {
 }
 
 function start_server(server_id) {
-    var clients = [];
     var channels = {};
     var server = {};
 
@@ -373,7 +372,7 @@ function start_server(server_id) {
 
                 var q = bufferpack.unpack('>id', message, 0);
 
-                var buffer = bufferpack.pack(">idiii", [0x00010204, q[1], clients.length, 5, 128000]);
+                var buffer = bufferpack.pack(">idiii", [0x00010204, q[1], Object.keys(Users.users).length, 5, 128000]);
 
                 server_udp.send(buffer, 0, buffer.length, remote.port, remote.address, function (err, bytes) {
                     if (err) {
@@ -391,13 +390,6 @@ function start_server(server_id) {
             app.get('/', function (req, res) {
                 res.sendFile(__dirname + '/index.html');
             });
-
-            // Send a message to all clients
-            function broadcast1(type, message) {
-                clients.forEach(function (client) {
-                    client.mumble.sendMessage(type, message);
-                });
-            }
 
             io.on('connection', function (socket) {
                 socket.on('chat message', function (msg) {
