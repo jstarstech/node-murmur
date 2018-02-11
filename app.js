@@ -148,8 +148,11 @@ function start_server(server_id) {
 
                 Users.on('broadcast', boadcast_listener);
 
-                var broadcast_audio = function (packet, source_session_id) {
-                    if (Users.getUser(uid).session === source_session_id) {
+                var broadcast_audio = function (packet, source_session) {
+                    if (Users.getUser(uid).session === source_session) {
+                        return;
+                    }
+                    if (Users.getUser(uid).channelId !== Users.sessionToChannels[source_session]) {
                         return;
                     }
                     if (Users.getUser(uid).selfDeaf === true) {
