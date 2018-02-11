@@ -136,10 +136,15 @@ function start_server(server_id) {
                 var connection = new MumbleConnection(socket);
 
                 var boadcast_listener = function (type, message, sender_uid) {
-                    connection.sendMessage(type, message);
-                    if (sender_uid !== uid) {
-                        connection.sendMessage(type, message);
+                    if (sender_uid === uid) {
+                        return;
                     }
+
+                    if (type === 'TextMessage' && message.channelId.indexOf(Users.getUser(uid).channelId) === -1) {
+                        return;
+                    }
+
+                    connection.sendMessage(type, message);
                 };
 
                 Users.on('broadcast', boadcast_listener);
@@ -191,12 +196,7 @@ function start_server(server_id) {
                         message: m.message
                     };
 
-                    _.each(Users.users, function (item, key, list) {
-                        connection.sendMessage('UserState', item);
-                        if (m.channelId.indexOf(item.channelId) > -1 && item.session !== Users.getUser(uid).session) {
-                            Users.emit('broadcast', 'TextMessage', ms, uid);
-                        }
-                    });
+                    Users.emit('broadcast', 'TextMessage', ms, uid);
                 });
 
                 connection.on('permissionQuery', function (m) {
