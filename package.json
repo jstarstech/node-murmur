@@ -15,6 +15,7 @@
     "jitterbuffer": "^0.1.12",
     "log4js": "^2.5.2",
     "log4js-extend": "^0.2.1",
+    "mumble": "^0.3.12",
     "protobufjs": "^6.8.4",
     "socket.io": "^1.4.8",
     "sqlite3": "^3.1.13",
