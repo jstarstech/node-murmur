@@ -98,7 +98,7 @@ async function start_server(server_id) {
     });
 
     if (typeof server.port === 'undefined') {
-        server.port = 64761;
+        server.port = 64738;
     }
 
     let channels = await getChannels(1);
@@ -121,7 +121,7 @@ async function start_server(server_id) {
         let uid;
         let connection = new MumbleConnection(socket, Users);
 
-        let boadcast_listener = function (type, message, sender_uid) {
+        function boadcast_listener(type, message, sender_uid) {
             if (type !== 'UserState' && sender_uid === uid) {
                 return;
             }
@@ -131,11 +131,11 @@ async function start_server(server_id) {
             }
 
             connection.sendMessage(type, message);
-        };
+        }
 
         Users.on('broadcast', boadcast_listener);
 
-         function broadcast_audio(packet, source_session) {
+        function broadcast_audio(packet, source_session) {
             let user = Users.getUser(uid);
 
             if (user.session === source_session) {
@@ -153,14 +153,8 @@ async function start_server(server_id) {
 
         Users.on('broadcast_audio', broadcast_audio);
 
-        connection.on('error', function () {
-            if (Users.getUser(uid)) {
-                Users.emit('broadcast', 'UserRemove', {session: Users.getUser(uid).session}, uid);
-                Users.deleteUser(uid);
-            }
-            Users.removeListener('broadcast', boadcast_listener);
-            Users.removeListener('broadcast_audio', broadcast_audio);
-            connection.disconnect();
+        connection.on('error', function (err) {
+            log.info('User disconnected', err);
         });
 
         connection.on('disconnect', function () {
@@ -397,8 +391,8 @@ async function start_server(server_id) {
         });
     });
 
-    http.listen(64762, function () {
-        log.info('listening on *:64762');
+    http.listen(64739, function () {
+        log.info('listening on *:64738');
     });
 }
 
