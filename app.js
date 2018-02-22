@@ -22,6 +22,10 @@ let util = require('./lib/util');
 let user = require('./lib/User');
 let bufferpack = require('bufferpack');
 let _ = require('underscore');
+const config = require('config');
+
+const Telegraf = require('telegraf');
+const bot = new Telegraf(config.get('TelegramToken'));
 
 async function getChannels(server_id, callback) {
     let channels = {};
@@ -71,6 +75,53 @@ async function getChannels(server_id, callback) {
 }
 
 async function start_server(server_id) {
+    let t;
+    let stop = false;
+    bot.start((ctx) => {
+        t = ctx;
+        return ctx.reply('Welcome!')
+    });
+
+    bot.on('text', function (ctx) {
+        if (stop) {
+            return;
+        }
+
+        if (ctx.message.text === '/stop') {
+            return;
+        }
+
+        if (ctx.message.text === '/start') {
+            return;
+        }
+
+        if (ctx.message.text === '/mc') {
+            if (t) {
+
+                let users_s = '';
+                let i = 0;
+
+                _.each(Users.users, function (item, key, list) {
+                    users_s += item.name + "\r\n";
+                    i++;
+                });
+
+                users_s += "\r\n" + 'Count: ' + i;
+                t.reply(users_s);
+            }
+            return;
+        }
+
+        Users.emit('broadcast_bot', ctx.from.first_name + ': ' + ctx.message.text.substr(1))
+    });
+
+    bot.command('stop', function (ctx) {
+        t = null;
+        stop = true;
+    });
+
+    bot.startPolling();
+
     let server = {};
 
     const rows_config = await new Promise(function (resolve) {
@@ -134,6 +185,16 @@ async function start_server(server_id) {
         }
 
         Users.on('broadcast', boadcast_listener);
+        Users.on('broadcast_bot', function(message) {
+            let ms = {
+                actor: 10,
+                session: [],
+                treeId: [],
+                message:message
+            };
+
+            connection.sendMessage('TextMessage', ms);
+        });
 
         function broadcast_audio(packet, source_session) {
             let user = Users.getUser(uid);
@@ -173,6 +234,10 @@ async function start_server(server_id) {
                 return;
             }
 
+            if (t) {
+                t.reply(Users.getUser(uid).name + ': ' + m.message);
+            }
+
             let ms = {
                 actor: Users.getUser(uid).session,
                 session: [],
@@ -180,6 +245,7 @@ async function start_server(server_id) {
                 treeId: [],
                 message: m.message
             };
+
 
             Users.emit('broadcast', 'TextMessage', ms, uid);
         });
