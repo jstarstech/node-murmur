@@ -11,14 +11,17 @@
   "dependencies": {
     "async": "^2.6.0",
     "bufferpack": "0.0.6",
+    "config": "^1.29.4",
     "express": "^4.13.4",
     "jitterbuffer": "^0.1.12",
     "log4js": "^2.5.2",
     "log4js-extend": "^0.2.1",
     "mumble": "^0.3.12",
     "protobufjs": "^6.8.4",
+    "sequelize": "^4.33.4",
     "socket.io": "^1.4.8",
     "sqlite3": "^3.1.13",
+    "telegraf": "^3.18.0",
     "underscore": "^1.8.3"
   }
 }

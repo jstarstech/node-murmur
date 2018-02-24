@@ -16,8 +16,7 @@ let MumbleConnection = require('./lib/MumbleConnection');
 let async = require('async');
 let tls = require('tls');
 let os = require('os');
-let sqlite3 = require('sqlite3').verbose();
-let db = new sqlite3.Database('./db/mumble-server.sqlite');
+var db = require('./models/index');
 let util = require('./lib/util');
 let user = require('./lib/User');
 let bufferpack = require('bufferpack');
@@ -30,44 +29,35 @@ const bot = new Telegraf(config.get('TelegramToken'));
 async function getChannels(server_id, callback) {
     let channels = {};
 
-    let rows = await new Promise(function (resolve) {
-        db.all("SELECT * FROM channels WHERE server_id = $server_id", {
-            $server_id: server_id
-        }, function (err, rows) {
-            if (err) {
-                log.error(new Error(err));
-
-                return resolve([]);
-            }
-
-            rows.forEach(function (row) {
-                channels[row.channel_id] = row;
-            });
-
-            resolve(rows);
+    let rows = await db['channels'].findAll({
+        where: {
+            server_id: server_id
+        }
+    }).catch(function (err) {
+            log.error(new Error(err));
         });
-    });
 
-    await async.eachOfLimit(rows, 1, function (channel, key, cb_row) {
-        db.all("SELECT * FROM channel_info WHERE server_id = $server_id AND channel_id = $channel_id", {
-            $server_id: server_id,
-            $channel_id: channel.channel_id
-        }, function (err, rows) {
-            if (err) {
-                log.error(new Error(err));
-                return cb_row(err);
+    rows.forEach(async function (row) {
+        channels[row.channel_id] = row;
+
+        let rows = await db['channel_info'].findAll({
+            where: {
+                server_id: server_id,
+                channel_id: row.channel_id
             }
+        }).catch(function (err) {
+            log.error(new Error(err));
 
-            rows.forEach(function (row) {
-                if (row.key === 0) {
-                    channels[channel.channel_id].description = row.value;
-                }
-                if (row.key === 1) {
-                    channels[channel.channel_id].position = row.value;
-                }
-            });
+            return [];
+        });
 
-            cb_row();
+        rows.forEach(function (row) {
+            if (row.key === 0) {
+                channels[row.channel_id].description = row.value;
+            }
+            if (row.key === 1) {
+                channels[row.channel_id].position = row.value;
+            }
         });
     });
 
@@ -124,17 +114,14 @@ async function start_server(server_id) {
 
     let server = {};
 
-    const rows_config = await new Promise(function (resolve) {
-        db.all("SELECT * FROM config WHERE server_id = $server_id", {
-            $server_id: server_id
-        }, function (err, rows) {
-            if (err) {
-                log.error(new Error(err));
-                return;
-            }
+    const rows_config = await await db['config'].findAll({
+        where: {
+            server_id: server_id
+        }
+    }).catch(function (err) {
+        log.error(new Error(err));
 
-            resolve(rows)
-        });
+        return [];
     });
 
     rows_config.forEach(function (row, i) {
@@ -256,19 +243,37 @@ async function start_server(server_id) {
 
         connection.on('permissionQuery', function (m) {
             let permissions = util.writePermissions({
-                Write: 0x01,
-                Traverse: 0x02,
                 Enter: 0x04,
-                Speak: 0x08,
-                Whisper: 0x100,
-                TextMessage: 0x200
+                Traverse: 0x02,
+                // All: 0xf07ff
             });
 
-            connection.sendMessage('PermissionQuery', {
+            /*connection.sendMessage('PermissionQuery', {
                 channelId: m.channelId,
                 permissions: permissions,
                 flush: false
+            });*/
+            console.log(m);
+
+            connection.sendMessage('PermissionDenied', {
+                channelId: m.channelId,
+                type: 1,
+                permission: permissions
             });
+        });
+
+        connection.on('acl', function (m) {
+            console.log(m);
+
+            if (m.query) {
+                connection.sendMessage('ACL', {
+                    groups: [],
+                    acls: [],
+                    channelId: 59,
+                    inherit_acls: true,
+                    query: false
+                });
+            }
         });
 
         connection.on('userState', function (m) {
@@ -371,11 +376,36 @@ async function start_server(server_id) {
                 });
             });
 
+/*            let permissions = util.writePermissions({
+                None: 0x00,
+                Write: 0x01,
+                Traverse: 0x02,
+                Enter: 0x04,
+                Speak: 0x08,
+                MuteDeafen: 0x10,
+                Move: 0x20,
+                MakeChannel: 0x40,
+                LinkChannel: 0x80,
+                Whisper: 0x100,
+                TextMessage: 0x200,
+                MakeTempChannel: 0x400,
+
+                // Root only
+                Kick: 0x10000,
+                Ban: 0x20000,
+                Register: 0x40000,
+                SelfRegister: 0x80000,
+
+                Cached: 0x8000000,
+                All: 0xf07ff
+            });
             connection.sendMessage('PermissionQuery', {
                 channelId: 0,
-                permissions: 134742798,
-                flush: false
-            });
+                permissions: permissions,
+                flush: true
+            });*/
+
+            //All: 0xf07ff
 
             _.each(Users.users, function (item, key, list) {
                 connection.sendMessage('UserState', item);
