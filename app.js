@@ -176,8 +176,10 @@ async function start_server(server_id) {
         let connection = new MumbleConnection(socket, Users);
 
         function boadcast_listener(type, message, sender_uid) {
-            if (type !== 'UserState' && sender_uid === uid) {
-                return;
+            if (sender_uid !== undefined) {
+                if (type !== 'UserState' && sender_uid === uid) {
+                    return;
+                }
             }
 
             if (type === 'TextMessage' && message.channelId.indexOf(Users.getUser(uid).channelId) === -1) {
@@ -406,6 +408,13 @@ async function start_server(server_id) {
                 pushToTalk: null
             });
         });
+
+        connection.on('channelRemove', function (m) {
+            Users.emit('broadcast', 'ChannelRemove', {
+                channelId: m.channelId
+            });
+        });
+
         connection.on('ping', function (m) {
             connection.sendMessage('Ping', {timestamp: m.timestamp});
         });
