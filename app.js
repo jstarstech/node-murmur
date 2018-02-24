@@ -164,6 +164,9 @@ async function start_server(server_id) {
     };
 
     tls.createServer(options, function (socket) {
+        socket.setKeepAlive(true, 10000);
+        socket.setTimeout(10000);
+        socket.setNoDelay(false);
         log.info("TLS Client authorized:", socket.authorized);
         if (!socket.authorized) {
             log.info("TLS authorization error:", socket.authorizationError);
@@ -217,11 +220,10 @@ async function start_server(server_id) {
         connection.on('error', function (err) {
             log.info('User disconnected', err);
         });
-
         connection.on('disconnect', function () {
             log.info('User disconnected');
 
-            if (Users.getUser(uid)) {
+            if (Users.getUser(uid).session) {
                 Users.emit('broadcast', 'UserRemove', {session: Users.getUser(uid).session}, uid);
                 Users.deleteUser(uid);
             }
