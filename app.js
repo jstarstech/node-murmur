@@ -11,14 +11,12 @@ log4js_extend(log4js, {
 let log = log4js.getLogger();
 
 let MumbleConnection = require('./lib/MumbleConnection');
-// let User = require('./lib/User');
 
-let async = require('async');
 let tls = require('tls');
 let os = require('os');
-var db = require('./models/index');
+let db = require('./models/index');
 let util = require('./lib/util');
-let user = require('./lib/User');
+let User = require('./lib/User');
 let bufferpack = require('bufferpack');
 let _ = require('underscore');
 const config = require('config');
@@ -26,7 +24,7 @@ const config = require('config');
 const Telegraf = require('telegraf');
 const bot = new Telegraf(config.get('TelegramToken'));
 
-async function getChannels(server_id, callback) {
+async function getChannels(server_id) {
     let channels = {};
 
     let rows = await db['channels'].findAll({
@@ -141,7 +139,7 @@ async function start_server(server_id) {
 
     let channels = await getChannels(1);
 
-    let Users = new user();
+    let Users = new User(db, log);
 
     let options = {
         key: server.key,
@@ -160,6 +158,7 @@ async function start_server(server_id) {
         }
 
         let uid;
+        let auth = false;
         let connection = new MumbleConnection(socket, Users);
 
         function boadcast_listener(type, message, sender_uid) {
@@ -276,12 +275,13 @@ async function start_server(server_id) {
             }
         });
 
+        let authUserState = {};
         connection.on('userState', function (m) {
             let user = Users.getUser(uid);
 
             let update_user_state = {
-                session: user.session,
-                actor: user.session
+                session: user.session || null,
+                actor: user.session || null
             };
 
             if (m.hasOwnProperty('deaf') && m.deaf !== user.deaf) {
@@ -323,8 +323,11 @@ async function start_server(server_id) {
             if (m.hasOwnProperty('pluginContext') && m.pluginContext !== user.pluginContext) {
                 update_user_state.pluginContext = m.pluginContext;
             }
-
-            Users.updateUser(uid, update_user_state);
+            if (auth === false) {
+                authUserState = update_user_state;
+            } else {
+                Users.updateUser(uid, update_user_state);
+            }
 
             Users.emit('broadcast', 'UserState', update_user_state, uid);
         });
@@ -336,12 +339,18 @@ async function start_server(server_id) {
             osVersion: os.release()
         });
 
-        connection.on('authenticate', function (m) {
-            uid = Users.addUser({
+        connection.on('authenticate', async function (m) {
+            uid = await Users.addUser({
                 name: m.username,
+                password: m.password,
+                opus: m.opus,
                 hash: socket.getPeerCertificate().fingerprint.replace(/:/g, '').toLowerCase(),
                 channelId: server.defaultchannel
             });
+
+            Users.updateUser(uid, authUserState);
+
+            log.debug(m);
 
             connection.sessionId = Users.getUser(uid).session;
 
