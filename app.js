@@ -137,7 +137,7 @@ async function start_server(server_id) {
         server.port = 64738;
     }
 
-    let channels = await getChannels(1);
+    let channels = await getChannels(server_id);
 
     let Users = new User(db, log);
 
