@@ -9,7 +9,7 @@ const User = require('./lib/User');
 const bufferpack = require('bufferpack');
 const _ = require('underscore');
 const config = require('config');
-const Telegraf = require('telegraf');
+const Telegraf = require('telegraf').Telegraf;
 
 log4js.configure('./config/log4js.json');
 log4js_extend(log4js, {

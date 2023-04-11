@@ -3,6 +3,7 @@
   "version": "0.0.1",
   "description": "",
   "main": "app.js",
+  "type": "commonjs",
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1"
   },
@@ -16,10 +17,10 @@
     "log4js": "^6.9.1",
     "log4js-extend": "^0.2.1",
     "protobufjs": "^7.2.3",
-    "sequelize": "^4.44.4",
+    "sequelize": "^6.31.0",
     "socket.io": "^4.6.1",
     "sqlite3": "^5.1.6",
-    "telegraf": "^3.40.0",
+    "telegraf": "^4.12.2",
     "underscore": "^1.13.6"
   },
   "engines": {
