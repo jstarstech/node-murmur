@@ -1,3 +1,4 @@
+const dgram = require('dgram');
 const tls = require('tls');
 const os = require('os');
 const _ = require('underscore');
@@ -6,7 +7,8 @@ const BufferPack = require('bufferpack');
 const config = require('config');
 const log4js = require('log4js');
 const log4js_extend = require('log4js-extend');
-const Telegraf = require('telegraf').Telegraf;
+const {Telegraf} = require('telegraf');
+const {message} = require('telegraf/filters');
 const db = require('./models/index');
 const MumbleConnection = require('./lib/MumbleConnection');
 const User = require('./lib/User');
@@ -63,7 +65,7 @@ async function getChannels(server_id) {
     return channels;
 }
 
-async function start_server(server_id) {
+async function startServer(server_id) {
     let t;
     let stop = false;
 
@@ -73,7 +75,7 @@ async function start_server(server_id) {
         return ctx.reply('Welcome!')
     });
 
-    bot.on('text', function (ctx) {
+    bot.on(message('text'), function (ctx) {
         if (stop) {
             return;
         }
@@ -111,45 +113,45 @@ async function start_server(server_id) {
         stop = true;
     });
 
-    bot.startPolling();
+    bot.launch();
 
-    let server = {};
+    let serverConfig = {};
 
-    const rows_config = await db['config']
+    const dbConfigs = await db['config']
         .findAll({
-        where: {
-            server_id: server_id
-        }
-    })
+            where: {
+                server_id: server_id
+            }
+        })
         .catch(function (err) {
-        log.error(new Error(err));
+            log.error(new Error(err));
 
-        return [];
-    });
+            return [];
+        });
 
-    rows_config.forEach(function (row, i) {
-        if (/^\d+$/.test(row.value)) {
-            row.value = parseInt(row.value);
+    for (let dbConfig of dbConfigs) {
+        if (/^\d+$/.test(dbConfig.value)) {
+            dbConfig.value = parseInt(dbConfig.value);
         }
 
-        if (row.value === 'true' || row.value === 'false') {
-            row.value = (row.value === 'true');
+        if (dbConfig.value === 'true' || dbConfig.value === 'false') {
+            dbConfig.value = (dbConfig.value === 'true');
         }
-        server[row.key] = row.value;
-    });
+        serverConfig[dbConfig.key] = dbConfig.value;
+    }
 
-    if (typeof server.port === 'undefined') {
-        server.port = 64738;
+    if (typeof serverConfig.port === 'undefined') {
+        serverConfig.port = 64738;
     }
 
     let channels = await getChannels(server_id);
 
-    let Users = new User(db, log);
+    const Users = new User(db, log);
 
-    let options = {
-        key: server.key,
-        cert: server.certificate,
-        requestCert: server.certrequired,
+    const options = {
+        key: serverConfig.key,
+        cert: serverConfig.certificate,
+        requestCert: serverConfig.certrequired,
         rejectUnauthorized: false
     };
 
@@ -195,14 +197,16 @@ async function start_server(server_id) {
         });
 
         function broadcast_audio(packet, source_session) {
-            let user = Users.getUser(uid);
+            const user = Users.getUser(uid);
 
             if (user.session === source_session) {
                 return;
             }
+
             if (user.channelId !== Users.sessionToChannels[source_session]) {
                 return;
             }
+
             if (user.selfDeaf === true) {
                 return;
             }
@@ -215,6 +219,7 @@ async function start_server(server_id) {
         connection.on('error', function (err) {
             log.info('User disconnected', err);
         });
+
         connection.on('disconnect', function () {
             log.info('User disconnected');
 
@@ -235,7 +240,7 @@ async function start_server(server_id) {
                 t.reply(Users.getUser(uid).name + ': ' + m.message);
             }
 
-            let ms = {
+            const ms = {
                 actor: Users.getUser(uid).session,
                 session: [],
                 channelId: m.channelId,
@@ -248,7 +253,7 @@ async function start_server(server_id) {
         });
 
         connection.on('permissionQuery', function (m) {
-            let permissions = util.writePermissions({
+            const permissions = util.writePermissions({
                 Enter: 0x04,
                 Traverse: 0x02,
                 // All: 0xf07ff
@@ -284,59 +289,60 @@ async function start_server(server_id) {
 
         let authUserState = {};
         connection.on('userState', function (m) {
-            let user = Users.getUser(uid);
+            const user = Users.getUser(uid);
 
-            let update_user_state = {
+            let updateUserState = {
                 session: user.session || null,
                 actor: user.session || null
             };
 
             if (m.hasOwnProperty('deaf') && m.deaf !== user.deaf) {
-                update_user_state.deaf = m.deaf;
+                updateUserState.deaf = m.deaf;
             }
 
             if (m.hasOwnProperty('mute') && m.mute !== user.mute) {
-                update_user_state.mute = m.mute;
+                updateUserState.mute = m.mute;
             }
 
             if (m.hasOwnProperty('recording') && m.recording !== user.recording) {
-                update_user_state.recording = m.recording;
+                updateUserState.recording = m.recording;
             }
 
             if (m.hasOwnProperty('suppress') && m.suppress !== user.suppress) {
-                update_user_state.suppress = m.suppress;
+                updateUserState.suppress = m.suppress;
             }
 
             if (m.hasOwnProperty('selfMute') && m.selfMute !== user.selfMute) {
-                update_user_state.selfMute = m.selfMute;
+                updateUserState.selfMute = m.selfMute;
             }
 
             if (m.hasOwnProperty('selfDeaf') && m.selfDeaf !== user.selfDeaf) {
-                update_user_state.selfDeaf = m.selfDeaf;
+                updateUserState.selfDeaf = m.selfDeaf;
             }
 
             if (m.hasOwnProperty('channelId') && m.channelId !== user.channelId) {
-                update_user_state.channelId = m.channelId;
+                updateUserState.channelId = m.channelId;
             }
 
             if (m.hasOwnProperty('prioritySpeaker') && m.prioritySpeaker !== user.prioritySpeaker) {
-                update_user_state.prioritySpeaker = m.prioritySpeaker;
+                updateUserState.prioritySpeaker = m.prioritySpeaker;
             }
 
             if (m.hasOwnProperty('pluginIdentity') && m.pluginIdentity !== user.pluginIdentity) {
-                update_user_state.pluginIdentity = m.pluginIdentity;
+                updateUserState.pluginIdentity = m.pluginIdentity;
             }
 
             if (m.hasOwnProperty('pluginContext') && m.pluginContext !== user.pluginContext) {
-                update_user_state.pluginContext = m.pluginContext;
-            }
-            if (auth === false) {
-                authUserState = update_user_state;
-            } else {
-                Users.updateUser(uid, update_user_state);
+                updateUserState.pluginContext = m.pluginContext;
             }
 
-            Users.emit('broadcast', 'UserState', update_user_state, uid);
+            if (auth === false) {
+                authUserState = updateUserState;
+            } else {
+                Users.updateUser(uid, updateUserState);
+            }
+
+            Users.emit('broadcast', 'UserState', updateUserState, uid);
         });
 
         connection.sendMessage('Version', {
@@ -352,7 +358,7 @@ async function start_server(server_id) {
                 password: m.password,
                 opus: m.opus,
                 hash: socket.getPeerCertificate().fingerprint.replace(/:/g, '').toLowerCase(),
-                channelId: server.defaultchannel
+                channelId: serverConfig.defaultchannel
             });
 
             Users.updateUser(uid, authUserState);
@@ -431,8 +437,8 @@ async function start_server(server_id) {
 
             connection.sendMessage('ServerSync', {
                 session: Users.getUser(uid).session,
-                maxBandwidth: server.bandwidth,
-                welcomeText: server.welcometext,
+                maxBandwidth: serverConfig.bandwidth,
+                welcomeText: serverConfig.welcometext,
                 permissions: {
                     low: 134217738,
                     high: 0,
@@ -444,7 +450,7 @@ async function start_server(server_id) {
                 maxBandwidth: null,
                 welcomeText: null,
                 allowHtml: true,
-                messageLength: server.textmessagelength,
+                messageLength: serverConfig.textmessagelength,
                 imageMessageLength: 1131072
             });
 
@@ -464,36 +470,35 @@ async function start_server(server_id) {
         connection.on('ping', function (m) {
             connection.sendMessage('Ping', {timestamp: m.timestamp});
         });
-    }).listen(server.port);
+    }).listen(serverConfig.port);
 
-    let dgram = require('dgram');
-    let server_udp = dgram.createSocket('udp4');
+    const serverUdp = dgram.createSocket('udp4');
 
-    server_udp.on('listening', function () {
-        let address = server_udp.address();
+    serverUdp.on('listening', function () {
+        let address = serverUdp.address();
     });
 
-    server_udp.on('message', function (message, remote) {
+    serverUdp.on('message', function (message, remote) {
         if (message.length !== 12) {
             return;
         }
 
-        let q = BufferPack.unpack('>id', message, 0);
+        const q = BufferPack.unpack('>id', message, 0);
 
-        let buffer = BufferPack.pack(">idiii", [0x00010204, q[1], Object.keys(Users.users).length, 5, 128000]);
+        const buffer = BufferPack.pack('>idiii', [0x00010204, q[1], Object.keys(Users.users).length, 5, 128000]);
 
-        server_udp.send(buffer, 0, buffer.length, remote.port, remote.address, function (err, bytes) {
+        serverUdp.send(buffer, 0, buffer.length, remote.port, remote.address, function (err, bytes) {
             if (err) {
                 throw err;
             }
         });
     });
 
-    server_udp.bind(server.port);
+    serverUdp.bind(serverConfig.port);
 
-    let app = require('express')();
-    let http = require('http').Server(app);
-    let io = require('socket.io')(http);
+    const app = require('express')();
+    const http = require('http').Server(app);
+    const io = require('socket.io')(http);
 
     app.get('/', function (req, res) {
         res.sendFile(__dirname + '/index.html');
@@ -519,4 +524,8 @@ async function start_server(server_id) {
     });
 }
 
-start_server(1);
+startServer(1)
+    .catch((e) => {
+        console.log(e);
+        process.exit();
+    });
