@@ -5,6 +5,7 @@ node_modules
 /test
 /logs
 /mumble-server.sqlite
+/config/config.json
 /config/default.json
 /config/log4js.json
 
