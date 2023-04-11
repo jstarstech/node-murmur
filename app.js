@@ -363,9 +363,9 @@ async function start_server(server_id) {
             // return;
 
             connection.sendMessage('CryptSetup', {
-                key: new Buffer('08dvzUdMpExPo9KUxgVYwg==', 'base64'),
-                clientNonce: new Buffer('vL2nJU/FURMQIu0HF0XlOA==', 'base64'),
-                serverNonce: new Buffer('KhXfffcCF/+WGd8YojVbSQ==', 'base64')
+                key: new Buffer.from('08dvzUdMpExPo9KUxgVYwg==', 'base64'),
+                clientNonce: new Buffer.from('vL2nJU/FURMQIu0HF0XlOA==', 'base64'),
+                serverNonce: new Buffer.from('KhXfffcCF/+WGd8YojVbSQ==', 'base64')
             });
 
             connection.sendMessage('CodecVersion', {
