@@ -1,58 +1,59 @@
+const log4js = require('log4js');
+const log4js_extend = require("log4js-extend");
+const MumbleConnection = require('./lib/MumbleConnection');
+const tls = require('tls');
+const os = require('os');
+const db = require('./models/index');
+const util = require('./lib/util');
+const User = require('./lib/User');
+const bufferpack = require('bufferpack');
+const _ = require('underscore');
+const config = require('config');
+const Telegraf = require('telegraf');
 
-"use strict";
-
-let log4js = require('log4js');
-let log4js_extend = require("log4js-extend");
 log4js.configure('./config/log4js.json');
 log4js_extend(log4js, {
     path: __dirname,
     format: "at @name (@file:@line:@column)"
 });
-let log = log4js.getLogger();
+const log = log4js.getLogger();
 
-let MumbleConnection = require('./lib/MumbleConnection');
-
-let tls = require('tls');
-let os = require('os');
-let db = require('./models/index');
-let util = require('./lib/util');
-let User = require('./lib/User');
-let bufferpack = require('bufferpack');
-let _ = require('underscore');
-const config = require('config');
-
-const Telegraf = require('telegraf');
 const bot = new Telegraf(config.get('TelegramToken'));
 
 async function getChannels(server_id) {
-    let channels = {};
+    const channels = {};
 
-    let rows = await db['channels'].findAll({
-        where: {
-            server_id: server_id
-        }
-    }).catch(function (err) {
+    const rows = await db['channels']
+        .findAll({
+            where: {
+                server_id: server_id
+            }
+        })
+        .catch(function (err) {
             log.error(new Error(err));
         });
 
     rows.forEach(async function (row) {
         channels[row.channel_id] = row;
 
-        let rows = await db['channel_info'].findAll({
-            where: {
-                server_id: server_id,
-                channel_id: row.channel_id
-            }
-        }).catch(function (err) {
-            log.error(new Error(err));
+        let rows = await db['channel_info']
+            .findAll({
+                where: {
+                    server_id: server_id,
+                    channel_id: row.channel_id
+                }
+            })
+            .catch(function (err) {
+                log.error(new Error(err));
 
-            return [];
-        });
+                return [];
+            });
 
         rows.forEach(function (row) {
             if (row.key === 0) {
                 channels[row.channel_id].description = row.value;
             }
+
             if (row.key === 1) {
                 channels[row.channel_id].position = row.value;
             }
@@ -65,8 +66,10 @@ async function getChannels(server_id) {
 async function start_server(server_id) {
     let t;
     let stop = false;
+
     bot.start((ctx) => {
         t = ctx;
+
         return ctx.reply('Welcome!')
     });
 
@@ -85,7 +88,6 @@ async function start_server(server_id) {
 
         if (ctx.message.text === '/mc') {
             if (t) {
-
                 let users_s = '';
                 let i = 0;
 
@@ -97,6 +99,7 @@ async function start_server(server_id) {
                 users_s += "\r\n" + 'Count: ' + i;
                 t.reply(users_s);
             }
+
             return;
         }
 
@@ -112,11 +115,13 @@ async function start_server(server_id) {
 
     let server = {};
 
-    const rows_config = await await db['config'].findAll({
+    const rows_config = await await db['config']
+        .findAll({
         where: {
             server_id: server_id
         }
-    }).catch(function (err) {
+    })
+        .catch(function (err) {
         log.error(new Error(err));
 
         return [];
@@ -176,12 +181,12 @@ async function start_server(server_id) {
         }
 
         Users.on('broadcast', boadcast_listener);
-        Users.on('broadcast_bot', function(message) {
+        Users.on('broadcast_bot', function (message) {
             let ms = {
                 actor: 10,
                 session: [],
                 treeId: [],
-                message:message
+                message: message
             };
 
             connection.sendMessage('TextMessage', ms);
@@ -385,34 +390,34 @@ async function start_server(server_id) {
                 });
             });
 
-/*            let permissions = util.writePermissions({
-                None: 0x00,
-                Write: 0x01,
-                Traverse: 0x02,
-                Enter: 0x04,
-                Speak: 0x08,
-                MuteDeafen: 0x10,
-                Move: 0x20,
-                MakeChannel: 0x40,
-                LinkChannel: 0x80,
-                Whisper: 0x100,
-                TextMessage: 0x200,
-                MakeTempChannel: 0x400,
+            /*            let permissions = util.writePermissions({
+                            None: 0x00,
+                            Write: 0x01,
+                            Traverse: 0x02,
+                            Enter: 0x04,
+                            Speak: 0x08,
+                            MuteDeafen: 0x10,
+                            Move: 0x20,
+                            MakeChannel: 0x40,
+                            LinkChannel: 0x80,
+                            Whisper: 0x100,
+                            TextMessage: 0x200,
+                            MakeTempChannel: 0x400,
 
-                // Root only
-                Kick: 0x10000,
-                Ban: 0x20000,
-                Register: 0x40000,
-                SelfRegister: 0x80000,
+                            // Root only
+                            Kick: 0x10000,
+                            Ban: 0x20000,
+                            Register: 0x40000,
+                            SelfRegister: 0x80000,
 
-                Cached: 0x8000000,
-                All: 0xf07ff
-            });
-            connection.sendMessage('PermissionQuery', {
-                channelId: 0,
-                permissions: permissions,
-                flush: true
-            });*/
+                            Cached: 0x8000000,
+                            All: 0xf07ff
+                        });
+                        connection.sendMessage('PermissionQuery', {
+                            channelId: 0,
+                            permissions: permissions,
+                            flush: true
+                        });*/
 
             //All: 0xf07ff
 
