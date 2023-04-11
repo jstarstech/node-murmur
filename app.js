@@ -7,8 +7,6 @@ const BufferPack = require('bufferpack');
 const config = require('config');
 const log4js = require('log4js');
 const log4js_extend = require('log4js-extend');
-const {Telegraf} = require('telegraf');
-const {message} = require('telegraf/filters');
 const db = require('./models/index');
 const MumbleConnection = require('./lib/MumbleConnection');
 const User = require('./lib/User');
@@ -66,55 +64,6 @@ async function getChannels(server_id) {
 }
 
 async function startServer(server_id) {
-    let t;
-    let stop = false;
-
-    bot.start((ctx) => {
-        t = ctx;
-
-        return ctx.reply('Welcome!')
-    });
-
-    bot.on(message('text'), function (ctx) {
-        if (stop) {
-            return;
-        }
-
-        if (ctx.message.text === '/stop') {
-            return;
-        }
-
-        if (ctx.message.text === '/start') {
-            return;
-        }
-
-        if (ctx.message.text === '/mc') {
-            if (t) {
-                let users_s = '';
-                let i = 0;
-
-                _.each(Users.users, function (item, key, list) {
-                    users_s += item.name + "\r\n";
-                    i++;
-                });
-
-                users_s += "\r\n" + 'Count: ' + i;
-                t.reply(users_s);
-            }
-
-            return;
-        }
-
-        Users.emit('broadcast_bot', ctx.from.first_name + ': ' + ctx.message.text.substr(1))
-    });
-
-    bot.command('stop', function (ctx) {
-        t = null;
-        stop = true;
-    });
-
-    bot.launch();
-
     let serverConfig = {};
 
     const dbConfigs = await db['config']
@@ -234,10 +183,6 @@ async function startServer(server_id) {
         connection.on('textMessage', function (m) {
             if (m.channelId.length === 0) {
                 return;
-            }
-
-            if (t) {
-                t.reply(Users.getUser(uid).name + ': ' + m.message);
             }
 
             const ms = {
@@ -495,33 +440,6 @@ async function startServer(server_id) {
     });
 
     serverUdp.bind(serverConfig.port);
-
-    const app = require('express')();
-    const http = require('http').Server(app);
-    const io = require('socket.io')(http);
-
-    app.get('/', function (req, res) {
-        res.sendFile(__dirname + '/index.html');
-    });
-
-    io.on('connection', function (socket) {
-        socket.on('chat message', function (msg) {
-            io.emit('chat message', msg);
-            let ms = {
-                //actor: users[user].u.session,
-                session: [],
-                //channelId: m.channelId,
-                tree_id: [],
-                message: msg
-            };
-
-            Users.emit('broadcast', 'TextMessage', ms, 0);
-        });
-    });
-
-    http.listen(64739, function () {
-        log.info('listening on *:64738');
-    });
 }
 
 startServer(1)
