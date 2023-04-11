@@ -3,7 +3,7 @@
 <head>
     <title>Server Chat</title>
     <meta name="viewport" content="width=device-width, initial-scale=1, shrink-to-fit=no">
-    <script src="https://cdn.socket.io/socket.io-1.2.0.js"></script>
+    <script src="https://cdn.socket.io/4.6.1/socket.io.min.js"></script>
     <script src="https://code.jquery.com/jquery-3.2.1.slim.min.js"
             integrity="sha384-KJ3o2DKtIkvYIK3UENzmM7KCkRr/rE9/Qpg6aAZGJwFDMVNA/GpGFF93hXpG5KkN"
             crossorigin="anonymous"></script>
@@ -14,14 +14,22 @@
             integrity="sha384-JZR6Spejh4U02d8jOt6vLEHfe/JQGiRRSQQxSfFWpi1MquVdAyjUar5+76PVCmYl"
             crossorigin="anonymous"></script>
     <script>
-        var socket = io();
-        $('form').submit(function () {
-            socket.emit('chat message', $('#m').val());
-            $('#m').val('');
-            return false;
-        });
-        socket.on('chat message', function (msg) {
-            $('#messages').append($('<li>').text(msg));
+        const socket = io();
+
+        $(function() {
+
+            $('.chat-form').on("submit", function (e) {
+                const input = $('#m');
+
+                socket.emit('chat message', input.val());
+                input.val('');
+
+                return false;
+            });
+
+            socket.on('chat message', function (msg) {
+                $('#messages').append($('<li>').text(msg));
+            });
         });
     </script>
 </head>
@@ -32,7 +40,7 @@
             <div id="messages"></div>
         </div>
         <div class="col-md">
-            <form action="">
+            <form class="chat-form" action="#">
                 <input id="m" autocomplete="off" value=""/>
                 <button>Send</button>
             </form>
