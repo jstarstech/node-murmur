@@ -1,4 +1,6 @@
 {
   "verbose": true,
-  "ignore": ["./db/*", "./ssl/*", "./logs/*"]
+  "restartable": "rs",
+  "ignore": [".git", "node_modules/", "db/", "ssl/", "logs/"],
+  "ext": "js,json"
 }

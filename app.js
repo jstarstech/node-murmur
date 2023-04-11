@@ -18,8 +18,6 @@ log4js_extend(log4js, {
 });
 const log = log4js.getLogger();
 
-const bot = new Telegraf(config.get('TelegramToken'));
-
 async function getChannels(server_id) {
     const channels = {};
 

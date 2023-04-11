@@ -5,6 +5,8 @@
   "main": "app.js",
   "type": "commonjs",
   "scripts": {
+    "start": "node app.js",
+    "dev": "nodemon --config nodemon.json app.js",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
   "author": "",
@@ -15,6 +17,7 @@
     "config": "^3.3.9",
     "log4js": "^6.9.1",
     "log4js-extend": "^0.2.1",
+    "nodemon": "^2.0.22",
     "protobufjs": "^7.2.3",
     "sequelize": "^6.31.0",
     "socket.io": "^4.6.1",
