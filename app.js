@@ -1,15 +1,15 @@
-const log4js = require('log4js');
-const log4js_extend = require("log4js-extend");
-const MumbleConnection = require('./lib/MumbleConnection');
 const tls = require('tls');
 const os = require('os');
-const db = require('./models/index');
-const util = require('./lib/util');
-const User = require('./lib/User');
-const bufferpack = require('bufferpack');
 const _ = require('underscore');
+const util = require('./lib/util');
+const BufferPack = require('bufferpack');
 const config = require('config');
+const log4js = require('log4js');
+const log4js_extend = require('log4js-extend');
 const Telegraf = require('telegraf').Telegraf;
+const db = require('./models/index');
+const MumbleConnection = require('./lib/MumbleConnection');
+const User = require('./lib/User');
 
 log4js.configure('./config/log4js.json');
 log4js_extend(log4js, {
@@ -23,7 +23,7 @@ const bot = new Telegraf(config.get('TelegramToken'));
 async function getChannels(server_id) {
     const channels = {};
 
-    const rows = await db['channels']
+    const dbChannels = await db['channels']
         .findAll({
             where: {
                 server_id: server_id
@@ -33,14 +33,14 @@ async function getChannels(server_id) {
             log.error(new Error(err));
         });
 
-    rows.forEach(async function (row) {
-        channels[row.channel_id] = row;
+    for (const dbChannel of dbChannels) {
+        channels[dbChannel.channel_id] = dbChannel;
 
-        let rows = await db['channel_info']
+        const channelInfos = await db['channel_info']
             .findAll({
                 where: {
                     server_id: server_id,
-                    channel_id: row.channel_id
+                    channel_id: dbChannel.channel_id
                 }
             })
             .catch(function (err) {
@@ -49,16 +49,16 @@ async function getChannels(server_id) {
                 return [];
             });
 
-        rows.forEach(function (row) {
-            if (row.key === 0) {
-                channels[row.channel_id].description = row.value;
+        for (const channelInfo of channelInfos) {
+            if (channelInfo.key === 0) {
+                channels[channelInfo.channel_id].description = channelInfo.value;
             }
 
-            if (row.key === 1) {
-                channels[row.channel_id].position = row.value;
+            if (channelInfo.key === 1) {
+                channels[channelInfo.channel_id].position = channelInfo.value;
             }
-        });
-    });
+        }
+    }
 
     return channels;
 }
@@ -115,7 +115,7 @@ async function start_server(server_id) {
 
     let server = {};
 
-    const rows_config = await await db['config']
+    const rows_config = await db['config']
         .findAll({
         where: {
             server_id: server_id
@@ -157,7 +157,9 @@ async function start_server(server_id) {
         socket.setKeepAlive(true, 10000);
         socket.setTimeout(10000);
         socket.setNoDelay(false);
+
         log.info("TLS Client authorized:", socket.authorized);
+
         if (!socket.authorized) {
             log.info("TLS authorization error:", socket.authorizationError);
         }
@@ -476,9 +478,9 @@ async function start_server(server_id) {
             return;
         }
 
-        let q = bufferpack.unpack('>id', message, 0);
+        let q = BufferPack.unpack('>id', message, 0);
 
-        let buffer = bufferpack.pack(">idiii", [0x00010204, q[1], Object.keys(Users.users).length, 5, 128000]);
+        let buffer = BufferPack.pack(">idiii", [0x00010204, q[1], Object.keys(Users.users).length, 5, 128000]);
 
         server_udp.send(buffer, 0, buffer.length, remote.port, remote.address, function (err, bytes) {
             if (err) {
