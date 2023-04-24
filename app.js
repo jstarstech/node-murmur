@@ -4,7 +4,6 @@ import os from 'os';
 import _ from 'underscore';
 import BufferPack from 'bufferpack';
 import log4js from 'log4js';
-import log4js_extend from 'log4js-extend';
 import * as util from './lib/util.js';
 import MumbleConnection from './lib/MumbleConnection.js';
 import User from './lib/User.js';
