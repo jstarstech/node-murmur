@@ -3,7 +3,7 @@
   "version": "0.0.1",
   "description": "",
   "main": "app.js",
-  "type": "commonjs",
+  "type": "module",
   "scripts": {
     "start": "node app.js",
     "dev": "nodemon --config nodemon.json app.js",

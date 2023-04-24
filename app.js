@@ -1,50 +1,44 @@
-const dgram = require('dgram');
-const tls = require('tls');
-const os = require('os');
-const _ = require('underscore');
-const BufferPack = require('bufferpack');
-const log4js = require('log4js');
-const log4js_extend = require('log4js-extend');
-const util = require('./lib/util');
-const db = require('./models/index');
-const MumbleConnection = require('./lib/MumbleConnection');
-const User = require('./lib/User');
+import dgram from 'dgram';
+import tls from 'tls';
+import os from 'os';
+import _ from 'underscore';
+import BufferPack from 'bufferpack';
+import log4js from 'log4js';
+import log4js_extend from 'log4js-extend';
+import * as util from './lib/util.js';
+import MumbleConnection from './lib/MumbleConnection.js';
+import User from './lib/User.js';
+import Config from './models/config.js';
+import Channels from './models/channels.js';
+import ChannelInfo from './models/channel_info.js';
 
 log4js.configure('./config/log4js.json');
-log4js_extend(log4js, {
-    path: __dirname,
-    format: 'at @name (@file:@line:@column)'
-});
 const log = log4js.getLogger();
 
 async function getChannels(server_id) {
     const channels = {};
 
-    const dbChannels = await db.channels
-        .findAll({
-            where: {
-                server_id
-            }
-        })
-        .catch(err => {
-            log.error(new Error(err));
-        });
+    const dbChannels = await Channels.findAll({
+        where: {
+            server_id
+        }
+    }).catch(err => {
+        log.error(new Error(err));
+    });
 
     for (const dbChannel of dbChannels) {
         channels[dbChannel.channel_id] = dbChannel;
 
-        const channelInfos = await db.channel_info
-            .findAll({
-                where: {
-                    server_id,
-                    channel_id: dbChannel.channel_id
-                }
-            })
-            .catch(err => {
-                log.error(new Error(err));
+        const channelInfos = await ChannelInfo.findAll({
+            where: {
+                server_id,
+                channel_id: dbChannel.channel_id
+            }
+        }).catch(err => {
+            log.error(new Error(err));
 
-                return [];
-            });
+            return [];
+        });
 
         for (const channelInfo of channelInfos) {
             if (channelInfo.key === 0) {
@@ -63,17 +57,15 @@ async function getChannels(server_id) {
 async function startServer(server_id) {
     const serverConfig = {};
 
-    const dbConfigs = await db.config
-        .findAll({
-            where: {
-                server_id
-            }
-        })
-        .catch(err => {
-            log.error(new Error(err));
+    const dbConfigs = await Config.findAll({
+        where: {
+            server_id
+        }
+    }).catch(err => {
+        log.error(new Error(err));
 
-            return [];
-        });
+        return [];
+    });
 
     for (const dbConfig of dbConfigs) {
         if (/^\d+$/.test(dbConfig.value)) {
@@ -92,7 +84,7 @@ async function startServer(server_id) {
 
     const channels = await getChannels(server_id);
 
-    const Users = new User(db, log);
+    const Users = new User(log);
 
     const options = {
         key: serverConfig.key,
@@ -123,7 +115,7 @@ async function startServer(server_id) {
                 }
             }
 
-            if (type === 'TextMessage' && message.channelId.indexOf(Users.getUser(uid).channelId) === -1) {
+            if (type === 'TextMessage' && !message.channelId.includes(Users.getUser(uid).channelId)) {
                 return;
             }
 
@@ -168,17 +160,17 @@ async function startServer(server_id) {
             Users.removeListener('broadcast_audio', broadcastAudio);
         });
 
-        connection.on('textMessage', m => {
-            if (m.channelId.length === 0) {
+        connection.on('textMessage', ({ channelId, message }) => {
+            if (channelId.length === 0) {
                 return;
             }
 
             const ms = {
                 actor: Users.getUser(uid).session,
                 session: [],
-                channelId: m.channelId,
+                channelId,
                 treeId: [],
-                message: m.message
+                message
             };
 
             Users.emit('broadcast', 'TextMessage', ms, uid);
@@ -396,14 +388,14 @@ async function startServer(server_id) {
             });
         });
 
-        connection.on('channelRemove', m => {
+        connection.on('channelRemove', ({ channelId }) => {
             Users.emit('broadcast', 'ChannelRemove', {
-                channelId: m.channelId
+                channelId
             });
         });
 
-        connection.on('ping', m => {
-            connection.sendMessage('Ping', { timestamp: m.timestamp });
+        connection.on('ping', ({ timestamp }) => {
+            connection.sendMessage('Ping', { timestamp });
         });
     }).listen(serverConfig.port);
 
@@ -413,7 +405,7 @@ async function startServer(server_id) {
         // const address = serverUdp.address();;
     });
 
-    serverUdp.on('message', (message, remote) => {
+    serverUdp.on('message', (message, { port, address }) => {
         if (message.length !== 12) {
             return;
         }
@@ -422,7 +414,7 @@ async function startServer(server_id) {
 
         const buffer = BufferPack.pack('>idiii', [0x00010204, q[1], Object.keys(Users.users).length, 5, 128000]);
 
-        serverUdp.send(buffer, 0, buffer.length, remote.port, remote.address, err => {
+        serverUdp.send(buffer, 0, buffer.length, port, address, err => {
             if (err) {
                 throw err;
             }
