@@ -228,43 +228,46 @@ async function startServer(server_id) {
                 actor: user.session || null
             };
 
-            if (m.hasOwnProperty('deaf') && m.deaf !== user.deaf) {
+            if (Object.prototype.hasOwnProperty.call(m, 'deaf') && m.deaf !== user.deaf) {
                 updateUserState.deaf = m.deaf;
             }
 
-            if (m.hasOwnProperty('mute') && m.mute !== user.mute) {
+            if (Object.prototype.hasOwnProperty.call(m, 'mute') && m.mute !== user.mute) {
                 updateUserState.mute = m.mute;
             }
 
-            if (m.hasOwnProperty('recording') && m.recording !== user.recording) {
+            if (Object.prototype.hasOwnProperty.call(m, 'recording') && m.recording !== user.recording) {
                 updateUserState.recording = m.recording;
             }
 
-            if (m.hasOwnProperty('suppress') && m.suppress !== user.suppress) {
+            if (Object.prototype.hasOwnProperty.call(m, 'suppress') && m.suppress !== user.suppress) {
                 updateUserState.suppress = m.suppress;
             }
 
-            if (m.hasOwnProperty('selfMute') && m.selfMute !== user.selfMute) {
+            if (Object.prototype.hasOwnProperty.call(m, 'selfMute') && m.selfMute !== user.selfMute) {
                 updateUserState.selfMute = m.selfMute;
             }
 
-            if (m.hasOwnProperty('selfDeaf') && m.selfDeaf !== user.selfDeaf) {
+            if (Object.prototype.hasOwnProperty.call(m, 'selfDeaf') && m.selfDeaf !== user.selfDeaf) {
                 updateUserState.selfDeaf = m.selfDeaf;
             }
 
-            if (m.hasOwnProperty('channelId') && m.channelId !== user.channelId) {
+            if (Object.prototype.hasOwnProperty.call(m, 'channelId') && m.channelId !== user.channelId) {
                 updateUserState.channelId = m.channelId;
             }
 
-            if (m.hasOwnProperty('prioritySpeaker') && m.prioritySpeaker !== user.prioritySpeaker) {
+            if (
+                Object.prototype.hasOwnProperty.call(m, 'prioritySpeaker') &&
+                m.prioritySpeaker !== user.prioritySpeaker
+            ) {
                 updateUserState.prioritySpeaker = m.prioritySpeaker;
             }
 
-            if (m.hasOwnProperty('pluginIdentity') && m.pluginIdentity !== user.pluginIdentity) {
+            if (Object.prototype.hasOwnProperty.call(m, 'pluginIdentity') && m.pluginIdentity !== user.pluginIdentity) {
                 updateUserState.pluginIdentity = m.pluginIdentity;
             }
 
-            if (m.hasOwnProperty('pluginContext') && m.pluginContext !== user.pluginContext) {
+            if (Object.prototype.hasOwnProperty.call(m, 'pluginContext') && m.pluginContext !== user.pluginContext) {
                 updateUserState.pluginContext = m.pluginContext;
             }
 
