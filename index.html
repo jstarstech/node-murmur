@@ -1,5 +1,5 @@
 <!doctype html>
-<html>
+<html lang="en">
     <head>
         <title>Server Chat</title>
         <meta name="viewport" content="width=device-width, initial-scale=1, shrink-to-fit=no" />
@@ -24,11 +24,11 @@
 
             $(function () {
                 $('.chat-form').on('submit', function (e) {
-                    const input = $('#m');
-                    const sanitizedInput = $('<div>').text(input.val()).html();
+                    const messageInput = $('#messageInput');
+                    const sanitizedInput = $('<div>').text(messageInput.val()).html();
                     socket.emit('chat message', sanitizedInput);
 
-                    input.val('');
+                    messageInput.val('');
 
                     return false;
                 });
@@ -49,7 +49,7 @@
                 </div>
                 <div class="col-md">
                     <form class="chat-form" action="#">
-                        <input id="m" autocomplete="off" value="" />
+                        <input id="messageInput" autocomplete="off" value="" />
                         <button>Send</button>
                     </form>
                 </div>
