@@ -12,16 +12,16 @@
   "author": "",
   "license": "BSD-2-Clause",
   "dependencies": {
-    "async": "^3.2.4",
+    "async": "^3.2.6",
     "bufferpack": "0.0.6",
-    "config": "^3.3.9",
+    "config": "^3.3.12",
     "log4js": "^6.9.1",
-    "nodemon": "^2.0.22",
-    "protobufjs": "^7.2.3",
-    "sequelize": "^6.31.0",
-    "socket.io": "^4.6.1",
-    "sqlite3": "^5.1.6",
-    "underscore": "^1.13.6"
+    "nodemon": "^3.1.7",
+    "protobufjs": "^7.4.0",
+    "sequelize": "^6.37.5",
+    "socket.io": "^4.8.1",
+    "sqlite3": "^5.1.7",
+    "underscore": "^1.13.7"
   },
   "engines": {
     "node": ">= 16"
@@ -31,6 +31,6 @@
     "eslint-config-prettier": "^8.8.0",
     "eslint-plugin-import": "^2.27.5",
     "eslint-plugin-prettier": "^4.2.1",
-    "prettier": "2.8.8"
+    "prettier": "3.4.2"
   }
 }
