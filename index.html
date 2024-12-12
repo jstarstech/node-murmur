@@ -17,18 +17,20 @@
         const socket = io();
 
         $(function() {
-
             $('.chat-form').on("submit", function (e) {
                 const input = $('#m');
+                const sanitizedInput = $('<div>').text(input.val()).html();
+                socket.emit('chat message', sanitizedInput);
 
-                socket.emit('chat message', input.val());
                 input.val('');
 
                 return false;
             });
 
             socket.on('chat message', function (msg) {
-                $('#messages').append($('<li>').text(msg));
+                const sanitizedMsg = $('<div>').text(msg).html();
+
+                $('#messages').append($('<li>').html(sanitizedMsg));
             });
         });
     </script>
