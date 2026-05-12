@@ -1415,14 +1415,7 @@ async function startServer(server_id) {
         }
 
         const currentPermissions = computePermissions(requestedChannelId, user, channels, aclState);
-        if (
-            nameProvided ||
-            descriptionProvided ||
-            positionProvided ||
-            linksProvided ||
-            targetParentId !== null ||
-            temporaryProvided
-        ) {
+        if (nameProvided || descriptionProvided || positionProvided || linksProvided || targetParentId !== null) {
             if ((currentPermissions & PERMISSIONS.Write) !== PERMISSIONS.Write) {
                 const error = new Error('Permission denied');
                 error.code = 'permission';
@@ -1461,7 +1454,7 @@ async function startServer(server_id) {
         const nextParentId = targetParentId !== null ? targetParentId : Number(currentChannel.parent_id);
         const parentChanged = targetParentId !== null && Number(targetParentId) !== Number(currentChannel.parent_id);
         const nextName = nameProvided ? targetName : currentChannel.name;
-        const nextTemporary = temporaryProvided ? Boolean(m.temporary) : Boolean(currentChannel.temporary);
+        const nextTemporary = Boolean(currentChannel.temporary);
 
         if (targetParentId !== null && !parentChanged) {
             return;
