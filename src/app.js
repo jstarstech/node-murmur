@@ -53,7 +53,32 @@ async function getChannels(server_id) {
         }
     }
 
+    if (!channels[0]) {
+        channels[0] = {
+            channel_id: 0,
+            parent_id: null,
+            name: 'Root',
+            description: '',
+            position: '0'
+        };
+    }
+
     return channels;
+}
+
+function sendChannelState(connection, channel) {
+    connection.sendMessage('ChannelState', {
+        channelId: channel.channel_id,
+        parent: channel.parent_id,
+        name: channel.name,
+        links: [],
+        description: channel.description || '',
+        linksAdd: [],
+        linksRemove: [],
+        temporary: false,
+        position: channel.position || '0',
+        descriptionHash: null
+    });
 }
 
 async function startServer(server_id) {
@@ -313,20 +338,17 @@ async function startServer(server_id) {
                 opus: true
             });
 
-            _.each(channels, channel => {
-                connection.sendMessage('ChannelState', {
-                    channelId: channel.channel_id,
-                    parent: channel.parent_id,
-                    name: channel.name,
-                    links: [],
-                    description: channel.description,
-                    linksAdd: [],
-                    linksRemove: [],
-                    temporary: false,
-                    position: channel.position,
-                    descriptionHash: null
-                });
-            });
+            const rootChannel = channels[0];
+            sendChannelState(connection, rootChannel);
+
+            _.each(
+                Object.values(channels)
+                    .filter(channel => channel.channel_id !== 0)
+                    .sort((left, right) => left.channel_id - right.channel_id),
+                channel => {
+                    sendChannelState(connection, channel);
+                }
+            );
 
             /*        let permissions = util.writePermissions({
                           None: 0x00,
