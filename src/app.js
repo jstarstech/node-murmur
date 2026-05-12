@@ -275,11 +275,17 @@ async function startServer(server_id) {
         });
 
         connection.on('authenticate', async m => {
+            const peerCertificate = socket.getPeerCertificate();
+            const certificateHash =
+                peerCertificate && typeof peerCertificate.fingerprint === 'string'
+                    ? peerCertificate.fingerprint.replace(/:/g, '').toLowerCase()
+                    : null;
+
             uid = await Users.addUser({
                 name: m.username,
                 password: m.password,
                 opus: m.opus,
-                hash: socket.getPeerCertificate().fingerprint.replace(/:/g, '').toLowerCase(),
+                hash: certificateHash,
                 channelId: serverConfig.defaultchannel
             });
 

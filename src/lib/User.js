@@ -64,6 +64,10 @@ class User extends EventEmitter {
     }
 
     async _createUserRecord(user_data) {
+        if (!user_data.hash) {
+            return null;
+        }
+
         const transaction = await sequelize.transaction();
 
         try {
@@ -137,19 +141,23 @@ class User extends EventEmitter {
         };
         let rememberedChannel = null;
 
-        let matchedUser = await Users.findOne({
-            where: {
-                server_id: 1,
-                name: user_data.name
+        let matchedUser = null;
+
+        if (user_data.hash) {
+            matchedUser = await Users.findOne({
+                where: {
+                    server_id: 1,
+                    name: user_data.name
+                }
+            }).catch(err => {
+                this.log.error(new Error(err));
+
+                return null;
+            });
+
+            if (!matchedUser) {
+                matchedUser = await this._createUserRecord(user_data);
             }
-        }).catch(err => {
-            this.log.error(new Error(err));
-
-            return null;
-        });
-
-        if (!matchedUser) {
-            matchedUser = await this._createUserRecord(user_data);
         }
 
         if (matchedUser) {
@@ -173,7 +181,7 @@ class User extends EventEmitter {
                 if (key === 2) {
                     user_model.comment = value;
                 }
-                if (key === 3) {
+                if (key === 3 && user_data.hash) {
                     user_model.hash = value;
                 }
             });
