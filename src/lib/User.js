@@ -3,6 +3,7 @@ import crypto from 'crypto';
 import _ from 'underscore';
 import Users from '../models/users.js';
 import UserInfo from '../models/user_info.js';
+import { verifySaltedSha1PasswordHash } from './passwordHash.js';
 
 class User extends EventEmitter {
     users = {
@@ -103,6 +104,33 @@ class User extends EventEmitter {
             };
         }
 
+        if (user_data.name === 'SuperUser') {
+            const superUser = await Users.findOne({
+                where: {
+                    server_id: 1,
+                    user_id: 0
+                }
+            }).catch(err => {
+                this.log.error(new Error(err));
+
+                return null;
+            });
+
+            if (!superUser || !superUser.pw || !user_data.password) {
+                rejectAuth = {
+                    type: 3,
+                    reason: 'Wrong password'
+                };
+            } else if (verifySaltedSha1PasswordHash(user_data.password, superUser.pw)) {
+                matchedUser = superUser;
+            } else {
+                rejectAuth = {
+                    type: 3,
+                    reason: 'Wrong password'
+                };
+            }
+        }
+
         const namedUser = await Users.findOne({
             where: {
                 server_id: 1,
@@ -114,7 +142,7 @@ class User extends EventEmitter {
             return null;
         });
 
-        if (namedUser) {
+        if (!matchedUser && !rejectAuth && namedUser) {
             const namedUserInfo = await UserInfo.findOne({
                 where: {
                     server_id: 1,
@@ -152,7 +180,7 @@ class User extends EventEmitter {
                 return null;
             });
 
-            if (matchedInfo && matchedInfo.user_id) {
+            if (matchedInfo && matchedInfo.user_id !== null && matchedInfo.user_id !== undefined) {
                 matchedUser = await Users.findOne({
                     where: {
                         server_id: 1,

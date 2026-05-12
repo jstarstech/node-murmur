@@ -3,6 +3,7 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import { sequelize } from '../models/index.js';
 import { generateSelfSignedCert } from './selfSignedCert.js';
+import { createSaltedSha1PasswordHash, generateSuperUserPassword } from './passwordHash.js';
 
 const ROOT_DIR = path.dirname(fileURLToPath(new URL('../../package.json', import.meta.url)));
 const DEFAULT_CERT_PATH = './ssl/server.cert';
@@ -160,6 +161,56 @@ async function storeServerCertConfig(serverId, certPath, keyPath) {
     );
 }
 
+async function ensureSuperUser(serverId) {
+    const [rows] = await sequelize.query(
+        `SELECT server_id, user_id, name, pw, lastchannel, texture, last_active
+         FROM users
+         WHERE server_id = ${Number(serverId)}
+           AND user_id = 0
+         LIMIT 1`
+    );
+
+    const existingUser = rows?.[0] || null;
+    if (existingUser) {
+        if (existingUser.name !== 'SuperUser') {
+            await sequelize.query(
+                `UPDATE users
+                 SET name = 'SuperUser'
+                 WHERE server_id = ${Number(serverId)}
+                   AND user_id = 0`
+            );
+        }
+
+        if (typeof existingUser.pw === 'string' && existingUser.pw.length > 0) {
+            return { created: false, password: null };
+        }
+    }
+
+    const password = generateSuperUserPassword();
+    const pwHash = createSaltedSha1PasswordHash(password);
+    const lastChannel = 0;
+
+    if (existingUser) {
+        await sequelize.query(
+            `UPDATE users
+             SET name = 'SuperUser',
+                 pw = ${sequelize.escape(pwHash)},
+                 lastchannel = ${sequelize.escape(lastChannel)}
+             WHERE server_id = ${Number(serverId)}
+               AND user_id = 0`
+        );
+    } else {
+        await sequelize.query(
+            `INSERT INTO users (server_id, user_id, name, pw, lastchannel, texture, last_active)
+             VALUES (${Number(serverId)}, 0, 'SuperUser', ${sequelize.escape(pwHash)}, ${sequelize.escape(
+                 lastChannel
+             )}, NULL, CURRENT_TIMESTAMP)`
+        );
+    }
+
+    return { created: true, password };
+}
+
 async function normalizeExistingServerCertificates(serverId) {
     const certAbsPath = resolvePath(DEFAULT_CERT_PATH);
     const keyAbsPath = resolvePath(DEFAULT_KEY_PATH);
@@ -251,6 +302,8 @@ async function seedDatabase() {
             (1, 'usersperchannel', '0'),
             (1, 'welcometext', 'Welcome to node-murmur!')`
     );
+
+    return ensureSuperUser(1);
 }
 
 export async function ensureDatabaseReady() {
@@ -258,11 +311,19 @@ export async function ensureDatabaseReady() {
 
     if (await tableRowCount('servers')) {
         await normalizeExistingServerCertificates(1);
-        return false;
+        const superUser = await ensureSuperUser(1);
+
+        return {
+            bootstrapped: false,
+            superUserPassword: superUser.password
+        };
     }
 
-    await seedDatabase();
-    return true;
+    const superUser = await seedDatabase();
+    return {
+        bootstrapped: true,
+        superUserPassword: superUser.password
+    };
 }
 
 export function resolveConfigFileValue(value) {

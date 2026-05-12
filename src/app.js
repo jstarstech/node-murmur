@@ -17,6 +17,7 @@ import { ensureDatabaseReady, resolveConfigFileValue } from './lib/bootstrapData
 import { createLogger } from './lib/logger.js';
 
 const log = createLogger();
+const ALL_PERMISSIONS = Object.values(PERMISSIONS).reduce((permissions, permission) => permissions | permission, 0);
 
 async function getChannels(server_id) {
     const channels = {};
@@ -682,7 +683,7 @@ async function startServer(server_id) {
                 session: Users.getUser(uid).session,
                 maxBandwidth: serverConfig.bandwidth,
                 welcomeText: serverConfig.welcometext,
-                permissions: null
+                permissions: Users.getUser(uid).userId === 0 ? ALL_PERMISSIONS : null
             });
 
             connection.sendMessage('ServerConfig', {
@@ -852,7 +853,18 @@ async function startServer(server_id) {
     });
 }
 
-await ensureDatabaseReady();
+const bootstrap = await ensureDatabaseReady();
+
+if (bootstrap.superUserPassword) {
+    log.info(
+        {
+            serverId: 1,
+            username: 'SuperUser',
+            password: bootstrap.superUserPassword
+        },
+        'Created initial superuser account'
+    );
+}
 
 startServer(1).catch(e => {
     log.error(e);
