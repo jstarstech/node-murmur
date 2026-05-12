@@ -31,6 +31,7 @@ import { createLogger } from './lib/logger.js';
 
 const log = createLogger();
 const CELT_COMPAT_BITSTREAM = -2147483637;
+const DEFAULT_CHANNEL_NAME_PATTERN = '[ \\-=\\w#\\[\\]\\{\\}\\(\\)@\\|\\.]+';
 
 async function getChannels(server_id) {
     const channels = {};
@@ -405,6 +406,16 @@ function buildCodecVersionPayload(codecState) {
         preferAlpha: Boolean(codecState.preferAlpha),
         opus: Boolean(codecState.opus)
     };
+}
+
+function buildChannelNameValidator(pattern) {
+    const source = typeof pattern === 'string' && pattern.length > 0 ? pattern : DEFAULT_CHANNEL_NAME_PATTERN;
+
+    try {
+        return new RegExp(`^(?:${source})$`);
+    } catch {
+        return new RegExp(`^(?:${DEFAULT_CHANNEL_NAME_PATTERN})$`);
+    }
 }
 
 function collectLinkedChannelIds(channelId, channels) {
@@ -907,6 +918,7 @@ async function startServer(server_id) {
         serverConfig.port = 64738;
     }
 
+    const channelNameValidator = buildChannelNameValidator(serverConfig.channelname);
     const listenHost =
         serverConfig.host || serverConfig.bindhost || serverConfig.bindip || serverConfig.ip || undefined;
 
@@ -1264,7 +1276,7 @@ async function startServer(server_id) {
                 throw new Error('Invalid parent channel');
             }
 
-            if (!nameProvided || !targetName || targetName.length === 0) {
+            if (!nameProvided || !targetName || !channelNameValidator.test(targetName)) {
                 throw new Error('Invalid channel name');
             }
 
@@ -1410,7 +1422,7 @@ async function startServer(server_id) {
             throw error;
         }
 
-        if (nameProvided && targetName !== null && targetName.length === 0) {
+        if (nameProvided && (targetName === null || !channelNameValidator.test(targetName))) {
             throw new Error('Invalid channel name');
         }
 
