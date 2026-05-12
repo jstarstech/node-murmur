@@ -164,7 +164,7 @@ async function startServer(server_id) {
         }
 
         if (connection && typeof connection.sendMessage === 'function') {
-            connection.sendMessage('UDPTunnel', { packet: rawPacket });
+            connection.sendMessage('UDPTunnel', rawPacket);
             return;
         }
 
@@ -243,8 +243,13 @@ async function startServer(server_id) {
         const connection = new MumbleConnection(socket, Users);
         connection.clientCryptoModes = [];
         connection.lastCryptResync = 0;
+        connection.state = 'connected';
 
         function broadcastListener(type, message, sender_uid) {
+            if (!['authenticated', 'ready'].includes(connection.state)) {
+                return;
+            }
+
             if (sender_uid !== undefined) {
                 if (type !== 'UserState' && sender_uid === uid) {
                     return;
@@ -288,11 +293,16 @@ async function startServer(server_id) {
         });
 
         connection.on('version', version => {
+            connection.state = 'version-received';
             connection.clientCryptoModes = Array.isArray(version.cryptoModes) ? version.cryptoModes : [];
             connection.clientVersion = version.version || 0;
         });
 
         connection.on('textMessage', ({ channelId, message }) => {
+            if (connection.state !== 'ready') {
+                return;
+            }
+
             if (channelId.length === 0) {
                 return;
             }
@@ -309,6 +319,10 @@ async function startServer(server_id) {
         });
 
         connection.on('permissionQuery', m => {
+            if (connection.state !== 'ready') {
+                return;
+            }
+
             const requestedChannelId = Number(m.channelId || 0);
             const user = Users.getUser(uid);
             if (!user || user.session === undefined) {
@@ -325,6 +339,10 @@ async function startServer(server_id) {
         });
 
         connection.on('acl', m => {
+            if (connection.state !== 'ready') {
+                return;
+            }
+
             if (m.query) {
                 const requestedChannelId = Number(m.channelId || 0);
                 connection.sendMessage('ACL', buildAclResponse(requestedChannelId, channels, aclState));
@@ -435,8 +453,10 @@ async function startServer(server_id) {
             osVersion: os.release(),
             cryptoModes: CryptState.supportedModes()
         });
+        connection.state = 'version-sent';
 
         connection.on('authenticate', async m => {
+            connection.state = 'authenticating';
             const peerCertificate = socket.getPeerCertificate();
             const certificateHash =
                 peerCertificate && typeof peerCertificate.fingerprint === 'string'
@@ -458,6 +478,7 @@ async function startServer(server_id) {
             }
 
             uid = authResult.id;
+            connection.state = 'authenticated';
 
             delete authUserState.channelId;
             await Users.updateUser(uid, authUserState);
@@ -493,19 +514,20 @@ async function startServer(server_id) {
                 }
             );
 
+            Users.emit('broadcast', 'UserState', Users.getUser(uid), uid);
+
             _.each(Users.users, item => {
                 if (item.session === connection.sessionId) {
                     return;
                 }
 
-                if (!connectionsBySession.has(item.session)) {
+                const targetConnection = connectionsBySession.get(item.session);
+                if (!targetConnection || targetConnection.state !== 'ready') {
                     return;
                 }
 
                 connection.sendMessage('UserState', item);
             });
-
-            Users.emit('broadcast', 'UserState', Users.getUser(uid), uid);
 
             connection.sendMessage('ServerSync', {
                 session: Users.getUser(uid).session,
@@ -527,9 +549,14 @@ async function startServer(server_id) {
             });
 
             ready = true;
+            connection.state = 'ready';
         });
 
         connection.on('channelRemove', ({ channelId }) => {
+            if (connection.state !== 'ready') {
+                return;
+            }
+
             Users.emit('broadcast', 'ChannelRemove', {
                 channelId
             });

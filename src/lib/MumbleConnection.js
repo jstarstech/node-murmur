@@ -26,6 +26,7 @@ class MumbleConnection extends EventEmitter {
         let self = this;
         this.socket = new MumbleSocket(socket);
         this.Users = Users;
+        this.state = 'connected';
 
         socket.on('close', this.disconnect.bind(this));
         socket.on('error', err => {
@@ -45,8 +46,24 @@ class MumbleConnection extends EventEmitter {
     sendMessage(type, data) {
         DIR(data);
 
-        // Look up the message schema by type and serialize the data into protobuf format.
-        let packet = Messages.buildPacket(type, data);
+        let packet;
+
+        if (type === 'UDPTunnel') {
+            if (Buffer.isBuffer(data)) {
+                packet = data;
+            } else if (data && Buffer.isBuffer(data.packet)) {
+                packet = data.packet;
+            } else if (data && data.packet) {
+                packet = Buffer.from(data.packet);
+            } else if (data && typeof data.length === 'number') {
+                packet = Buffer.from(data);
+            } else {
+                packet = Buffer.alloc(0);
+            }
+        } else {
+            // Look up the message schema by type and serialize the data into protobuf format.
+            packet = Messages.buildPacket(type, data);
+        }
 
         // Create the prefix.
         let prefix = Buffer.alloc(6);
@@ -64,6 +81,7 @@ class MumbleConnection extends EventEmitter {
      */
     disconnect() {
         //clearInterval( this.pingInterval );
+        this.state = 'dead';
         this.emit('disconnect');
         this.socket.end();
         this.removeAllListeners();
@@ -78,6 +96,11 @@ class MumbleConnection extends EventEmitter {
      * @param data Message data
      **/
     _processData(type, data) {
+        if (type === Messages.idByName.UDPTunnel) {
+            this._processMessage(type, data);
+            return;
+        }
+
         const msg = Messages.decodePacket(type, data);
         this._processMessage(type, msg);
     }
@@ -120,7 +143,7 @@ class MumbleConnection extends EventEmitter {
      * @param data Voice packet
      **/
     _onUDPTunnel(data) {
-        const packet = data.packet ? Buffer.from(data.packet) : null;
+        const packet = Buffer.isBuffer(data) ? data : data?.packet ? Buffer.from(data.packet) : null;
 
         if (!packet) {
             return;

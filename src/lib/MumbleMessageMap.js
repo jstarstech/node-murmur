@@ -41,11 +41,35 @@ const root = await new Promise(resolve => {
 });
 
 export const buildPacket = (type, payload) => {
+    if (type === 'UDPTunnel') {
+        if (Buffer.isBuffer(payload)) {
+            return payload;
+        }
+
+        if (payload && Buffer.isBuffer(payload.packet)) {
+            return payload.packet;
+        }
+
+        if (payload && payload.packet) {
+            return Buffer.from(payload.packet);
+        }
+
+        if (payload && typeof payload.length === 'number') {
+            return Buffer.from(payload);
+        }
+
+        return Buffer.alloc(0);
+    }
+
     let message = root.lookupType(`MumbleProto.${type}`).create(payload || {});
     return root.lookupType(`MumbleProto.${type}`).encode(message).finish();
 };
 
 export const decodePacket = (type_id, payload) => {
+    if (type_id === 1) {
+        return Buffer.from(payload || []);
+    }
+
     let type = map[type_id];
     return root.lookupType(`MumbleProto.${type}`).decode(payload || {});
 };
