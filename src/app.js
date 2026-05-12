@@ -2,10 +2,8 @@ import dgram from 'dgram';
 import crypto from 'crypto';
 import tls from 'tls';
 import os from 'os';
-import { fileURLToPath } from 'url';
 import _ from 'underscore';
 import BufferPack from 'bufferpack';
-import log4js from 'log4js';
 import * as util from './lib/util.js';
 import MumbleConnection from './lib/MumbleConnection.js';
 import User from './lib/User.js';
@@ -16,9 +14,9 @@ import Config from './models/config.js';
 import Channels from './models/channels.js';
 import ChannelInfo from './models/channel_info.js';
 import { ensureDatabaseReady, resolveConfigFileValue } from './lib/bootstrapDatabase.js';
+import { createLogger } from './lib/logger.js';
 
-log4js.configure(fileURLToPath(new URL('../config/log4js.json', import.meta.url)));
-const log = log4js.getLogger();
+const log = createLogger();
 
 async function getChannels(server_id) {
     const channels = {};
@@ -339,10 +337,10 @@ async function startServer(server_id) {
         socket.setTimeout(10000);
         socket.setNoDelay(true);
 
-        log.info('TLS Client authorized:', socket.authorized);
+        log.info({ authorized: socket.authorized }, 'TLS client authorized');
 
         if (!socket.authorized) {
-            log.info('TLS authorization error:', socket.authorizationError);
+            log.info({ authorizationError: socket.authorizationError }, 'TLS authorization error');
         }
 
         let uid;
@@ -388,7 +386,7 @@ async function startServer(server_id) {
         Users.on('broadcast_audio', broadcastAudio);
 
         connection.on('error', err => {
-            log.info('User disconnected', err);
+            log.error({ err }, 'User disconnected');
         });
 
         connection.on('disconnect', async () => {
