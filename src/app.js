@@ -219,6 +219,9 @@ async function startServer(server_id) {
         serverConfig.port = 64738;
     }
 
+    const listenHost =
+        serverConfig.host || serverConfig.bindhost || serverConfig.bindip || serverConfig.ip || undefined;
+
     const channels = await getChannels(server_id);
     const aclState = await loadAclState(server_id);
 
@@ -332,7 +335,7 @@ async function startServer(server_id) {
         rejectUnauthorized: false
     };
 
-    tls.createServer(options, socket => {
+    const server = tls.createServer(options, socket => {
         socket.setKeepAlive(true, 10000);
         socket.setTimeout(10000);
         socket.setNoDelay(true);
@@ -741,7 +744,21 @@ async function startServer(server_id) {
                 log.error(new Error(err));
             }
         });
-    }).listen(serverConfig.port);
+    });
+
+    server.listen(serverConfig.port, listenHost, () => {
+        const address = server.address();
+        log.info(
+            {
+                serverId: server_id,
+                serverName: serverConfig.registername || null,
+                protocol: 'tcp',
+                address: typeof address === 'object' && address ? address.address : listenHost || '0.0.0.0',
+                port: typeof address === 'object' && address ? address.port : serverConfig.port
+            },
+            'Server started and listening'
+        );
+    });
 
     serverUdp = dgram.createSocket('udp4');
 
@@ -820,7 +837,19 @@ async function startServer(server_id) {
         broadcastVoicePacket(voicePacket, matchedConnection.sessionId);
     });
 
-    serverUdp.bind(serverConfig.port);
+    serverUdp.bind(serverConfig.port, listenHost, () => {
+        const address = serverUdp.address();
+        log.info(
+            {
+                serverId: server_id,
+                serverName: serverConfig.registername || null,
+                protocol: 'udp',
+                address: typeof address === 'object' && address ? address.address : listenHost || '0.0.0.0',
+                port: typeof address === 'object' && address ? address.port : serverConfig.port
+            },
+            'UDP socket started and listening'
+        );
+    });
 }
 
 await ensureDatabaseReady();
