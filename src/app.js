@@ -1247,7 +1247,8 @@ async function startServer(server_id) {
             Object.prototype.hasOwnProperty.call(m, 'channelId') && m.channelId !== null && m.channelId !== undefined;
         const isCreate = !hasChannelId;
         const requestedChannelId = hasChannelId ? Number(m.channelId) : null;
-        const targetName = typeof m.name === 'string' ? m.name : null;
+        const nameProvided = Object.prototype.hasOwnProperty.call(m, 'name');
+        const targetName = nameProvided && typeof m.name === 'string' ? m.name : null;
         const targetParentId = Object.prototype.hasOwnProperty.call(m, 'parent') ? Number(m.parent) : null;
         const temporaryProvided = Object.prototype.hasOwnProperty.call(m, 'temporary');
         const isTemporary = temporaryProvided ? Boolean(m.temporary) : false;
@@ -1263,7 +1264,7 @@ async function startServer(server_id) {
                 throw new Error('Invalid parent channel');
             }
 
-            if (!targetName || targetName.length === 0) {
+            if (!nameProvided || !targetName || targetName.length === 0) {
                 throw new Error('Invalid channel name');
             }
 
@@ -1407,19 +1408,19 @@ async function startServer(server_id) {
             throw new Error('Invalid channel');
         }
 
-        if (currentChannel.channel_id === 0 && targetName !== null && targetName !== currentChannel.name) {
+        if (currentChannel.channel_id === 0 && nameProvided && targetName !== currentChannel.name) {
             const error = new Error('Root channel cannot be renamed');
             error.code = 'root_rename';
             throw error;
         }
 
-        if (targetName !== null && targetName.length === 0) {
+        if (nameProvided && targetName !== null && targetName.length === 0) {
             throw new Error('Invalid channel name');
         }
 
         const currentPermissions = computePermissions(requestedChannelId, user, channels, aclState);
         if (
-            targetName !== null ||
+            nameProvided ||
             descriptionProvided ||
             positionProvided ||
             linksProvided ||
@@ -1463,7 +1464,7 @@ async function startServer(server_id) {
 
         const nextParentId = targetParentId !== null ? targetParentId : Number(currentChannel.parent_id);
         const parentChanged = targetParentId !== null && Number(targetParentId) !== Number(currentChannel.parent_id);
-        const nextName = targetName !== null ? targetName : currentChannel.name;
+        const nextName = nameProvided ? targetName : currentChannel.name;
         const nextTemporary = temporaryProvided ? Boolean(m.temporary) : Boolean(currentChannel.temporary);
 
         const parentChannel = channels[nextParentId];
