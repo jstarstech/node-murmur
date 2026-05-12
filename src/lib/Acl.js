@@ -22,7 +22,7 @@ export const PERMISSIONS = Object.freeze({
 export const DEFAULT_PERMISSIONS =
     PERMISSIONS.Traverse | PERMISSIONS.Enter | PERMISSIONS.Speak | PERMISSIONS.Whisper | PERMISSIONS.TextMessage;
 
-const bool = value => value === 1 || value === true;
+const bool = value => value === 1 || value === true || value === '1' || value === 'true';
 
 const getChannelPath = (channelId, channels) => {
     const path = [];
@@ -51,7 +51,7 @@ const groupMatchesBuiltin = (name, user, currentChannelId) => {
     }
 
     if (name === 'auth') {
-        return user.userId !== null && user.userId !== undefined;
+        return user.session !== null && user.session !== undefined;
     }
 
     if (name === 'strong') {
@@ -200,10 +200,10 @@ const groupMatches = (rawName, user, aclChannelId, currentChannelId, channels, a
 
 const aclApplies = (acl, targetChannelId, aclChannelId) => {
     if (targetChannelId === aclChannelId) {
-        return acl.apply_here;
+        return acl.applyHere;
     }
 
-    return acl.apply_sub;
+    return acl.applySub;
 };
 
 export async function loadAclState(serverId) {

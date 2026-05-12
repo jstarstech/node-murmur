@@ -13,11 +13,13 @@ import { getVoiceKind, getVoiceTarget, rebuildVoicePacket } from './lib/voice.js
 import Config from './models/config.js';
 import Channels from './models/channels.js';
 import ChannelInfo from './models/channel_info.js';
+import RegisteredUsers from './models/users.js';
+import UserInfo from './models/user_info.js';
+import { sequelize } from './models/index.js';
 import { ensureDatabaseReady, resolveConfigFileValue } from './lib/bootstrapDatabase.js';
 import { createLogger } from './lib/logger.js';
 
 const log = createLogger();
-const ALL_PERMISSIONS = Object.values(PERMISSIONS).reduce((permissions, permission) => permissions | permission, 0);
 
 async function getChannels(server_id) {
     const channels = {};
@@ -184,6 +186,101 @@ function buildUserStatePayload(user, clientVersion, { includeBlobs = false } = {
     }
 
     return payload;
+}
+
+async function getRegisteredUsers(serverId) {
+    return RegisteredUsers.findAll({
+        where: {
+            server_id: serverId
+        },
+        order: [['user_id', 'ASC']]
+    });
+}
+
+async function createRegisteredUser(serverId, user, certificateHash) {
+    const [rows] = await sequelize.query(
+        `SELECT COALESCE(MAX(user_id), 0) AS max_user_id
+         FROM users
+         WHERE server_id = ${Number(serverId)}`
+    );
+
+    const nextUserId = Number(rows?.[0]?.max_user_id || 0) + 1;
+
+    const existingName = await RegisteredUsers.findOne({
+        where: {
+            server_id: serverId,
+            name: user.name
+        }
+    });
+    if (existingName) {
+        throw new Error('Username is already registered');
+    }
+
+    const existingCert = await UserInfo.findOne({
+        where: {
+            server_id: serverId,
+            key: 3,
+            value: certificateHash
+        }
+    });
+    if (existingCert) {
+        throw new Error('Certificate hash is already registered');
+    }
+
+    await RegisteredUsers.create({
+        server_id: serverId,
+        user_id: nextUserId,
+        name: user.name,
+        pw: null,
+        lastchannel: user.channelId ?? 0,
+        texture: null,
+        last_active: new Date()
+    });
+
+    await UserInfo.create({
+        server_id: serverId,
+        user_id: nextUserId,
+        key: 3,
+        value: certificateHash
+    });
+
+    return nextUserId;
+}
+
+async function sendRegisteredUsers(connection, serverId, query = {}) {
+    const registeredUsers = await getRegisteredUsers(serverId);
+    const requestedIds = Array.isArray(query.ids) ? query.ids.map(id => Number(id)) : [];
+    const requestedNames = Array.isArray(query.names) ? query.names.filter(name => typeof name === 'string') : [];
+    const hasFilter = requestedIds.length > 0 || requestedNames.length > 0;
+
+    const filteredUsers = registeredUsers.filter(user => {
+        if (Number(user.user_id) === 0) {
+            return false;
+        }
+
+        if (!hasFilter) {
+            return true;
+        }
+
+        return requestedIds.includes(Number(user.user_id)) || requestedNames.includes(user.name);
+    });
+
+    const users = [];
+    for (const user of filteredUsers) {
+        users.push({
+            userId: Number(user.user_id),
+            name: user.name,
+            lastSeen:
+                user.last_active instanceof Date
+                    ? user.last_active.toISOString()
+                    : user.last_active
+                      ? new Date(user.last_active).toISOString()
+                      : undefined,
+            lastChannel: user.lastchannel ?? undefined
+        });
+    }
+
+    connection.sendMessage('UserList', { users });
 }
 
 async function startServer(server_id) {
@@ -467,6 +564,64 @@ async function startServer(server_id) {
             }
         });
 
+        connection.on('queryUsers', async m => {
+            if (!['authenticated', 'ready'].includes(connection.state)) {
+                return;
+            }
+
+            await sendRegisteredUsers(connection, 1, m);
+        });
+
+        connection.on('userList', async m => {
+            if (!['authenticated', 'ready'].includes(connection.state)) {
+                return;
+            }
+
+            if (!Array.isArray(m.users) || m.users.length === 0) {
+                await sendRegisteredUsers(connection, 1, m);
+                return;
+            }
+
+            for (const entry of m.users) {
+                const userId = Number(entry.userId || 0);
+                if (userId === 0) {
+                    continue;
+                }
+
+                if (entry.name === undefined || entry.name === null) {
+                    await RegisteredUsers.destroy({
+                        where: {
+                            server_id: 1,
+                            user_id: userId
+                        }
+                    });
+
+                    await UserInfo.destroy({
+                        where: {
+                            server_id: 1,
+                            user_id: userId,
+                            key: 3
+                        }
+                    });
+                    continue;
+                }
+
+                await RegisteredUsers.update(
+                    {
+                        name: entry.name
+                    },
+                    {
+                        where: {
+                            server_id: 1,
+                            user_id: userId
+                        }
+                    }
+                );
+            }
+
+            await sendRegisteredUsers(connection, 1, {});
+        });
+
         connection.on('requestBlob', m => {
             if (!['authenticated', 'ready'].includes(connection.state)) {
                 return;
@@ -520,6 +675,58 @@ async function startServer(server_id) {
                 session: user.session || null,
                 actor: user.session || null
             };
+
+            if (Object.prototype.hasOwnProperty.call(m, 'userId') && m.userId !== null && m.userId !== undefined) {
+                if (user.userId !== null && user.userId !== undefined) {
+                    connection.sendMessage('PermissionDenied', {
+                        type: 1,
+                        permission: PERMISSIONS.SelfRegister,
+                        channelId: 0,
+                        session: user.session,
+                        reason: 'Already registered'
+                    });
+                    return;
+                }
+
+                if (!user.hash) {
+                    connection.sendMessage('PermissionDenied', {
+                        type: 7,
+                        session: user.session,
+                        reason: 'Missing certificate'
+                    });
+                    return;
+                }
+
+                const rootPermissions = computePermissions(0, user, channels, aclState);
+                if ((rootPermissions & PERMISSIONS.SelfRegister) !== PERMISSIONS.SelfRegister) {
+                    connection.sendMessage('PermissionDenied', {
+                        type: 1,
+                        permission: PERMISSIONS.SelfRegister,
+                        channelId: 0,
+                        session: user.session,
+                        reason: 'Permission denied'
+                    });
+                    return;
+                }
+
+                try {
+                    const registeredUserId = await createRegisteredUser(1, user, user.hash);
+                    const updatedUser = await Users.updateUser(uid, {
+                        userId: registeredUserId
+                    });
+
+                    Users.emit('broadcast', 'UserState', updatedUser, uid);
+                } catch (err) {
+                    log.error(new Error(err));
+                    connection.sendMessage('PermissionDenied', {
+                        type: 0,
+                        session: user.session,
+                        reason: 'Unable to register user'
+                    });
+                }
+
+                return;
+            }
 
             if (Object.prototype.hasOwnProperty.call(m, 'deaf') && m.deaf !== user.deaf) {
                 updateUserState.deaf = m.deaf;
@@ -683,7 +890,7 @@ async function startServer(server_id) {
                 session: Users.getUser(uid).session,
                 maxBandwidth: serverConfig.bandwidth,
                 welcomeText: serverConfig.welcometext,
-                permissions: Users.getUser(uid).userId === 0 ? ALL_PERMISSIONS : null
+                permissions: computePermissions(0, Users.getUser(uid), channels, aclState)
             });
 
             connection.sendMessage('ServerConfig', {

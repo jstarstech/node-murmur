@@ -161,6 +161,18 @@ async function storeServerCertConfig(serverId, certPath, keyPath) {
     );
 }
 
+async function ensureSelfRegisterAcl(serverId) {
+    await sequelize.query(
+        `UPDATE acl
+         SET grantpriv = COALESCE(grantpriv, 0) | ${Number(524288)}
+         WHERE server_id = ${Number(serverId)}
+           AND channel_id = 0
+           AND group_name = 'auth'
+           AND apply_here = 1
+           AND apply_sub = 1`
+    );
+}
+
 async function ensureSuperUser(serverId) {
     const [rows] = await sequelize.query(
         `SELECT server_id, user_id, name, pw, lastchannel, texture, last_active
@@ -286,6 +298,7 @@ async function seedDatabase() {
             (1, 0, 2, NULL, 'auth', 1, 1, 1024, NULL),
             (1, 0, 3, NULL, 'all', 1, 0, 524288, NULL)`
     );
+    await ensureSelfRegisterAcl(1);
     await sequelize.query(
         `INSERT INTO config (server_id, key, value) VALUES
             (1, 'allowhtml', 'true'),
@@ -311,6 +324,7 @@ export async function ensureDatabaseReady() {
 
     if (await tableRowCount('servers')) {
         await normalizeExistingServerCertificates(1);
+        await ensureSelfRegisterAcl(1);
         const superUser = await ensureSuperUser(1);
 
         return {
