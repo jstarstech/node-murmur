@@ -2,11 +2,11 @@
   "name": "murmur",
   "version": "0.0.1",
   "description": "",
-  "main": "app.js",
+  "main": "src/app.js",
   "type": "module",
   "scripts": {
-    "start": "node app.js",
-    "dev": "nodemon --config nodemon.json app.js",
+    "start": "node src/app.js",
+    "dev": "nodemon --config nodemon.json src/app.js",
     "lint": "eslint .",
     "lint:fix": "eslint . --fix",
     "test": "echo \"Error: no test specified\" && exit 1"

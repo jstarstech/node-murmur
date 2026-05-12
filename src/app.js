@@ -1,6 +1,7 @@
 import dgram from 'dgram';
 import tls from 'tls';
 import os from 'os';
+import { fileURLToPath } from 'url';
 import _ from 'underscore';
 import BufferPack from 'bufferpack';
 import log4js from 'log4js';
@@ -11,7 +12,7 @@ import Config from './models/config.js';
 import Channels from './models/channels.js';
 import ChannelInfo from './models/channel_info.js';
 
-log4js.configure('./config/log4js.json');
+log4js.configure(fileURLToPath(new URL('../config/log4js.json', import.meta.url)));
 const log = log4js.getLogger();
 
 async function getChannels(server_id) {

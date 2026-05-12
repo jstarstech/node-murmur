@@ -1,4 +1,5 @@
 import protobufjs from 'protobufjs';
+import { fileURLToPath } from 'url';
 
 const map = {
     0: 'Version',
@@ -30,7 +31,7 @@ const map = {
 };
 
 const root = await new Promise(resolve => {
-    protobufjs.load('./lib/Mumble.proto', (err, root) => {
+    protobufjs.load(fileURLToPath(new URL('./Mumble.proto', import.meta.url)), (err, root) => {
         if (err) {
             throw err;
         }

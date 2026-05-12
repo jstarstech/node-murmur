@@ -18,7 +18,8 @@ export default [
                 console: 'readonly',
                 module: 'readonly',
                 process: 'readonly',
-                require: 'readonly'
+                require: 'readonly',
+                URL: 'readonly'
             }
         }
     },
