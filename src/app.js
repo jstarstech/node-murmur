@@ -975,6 +975,156 @@ async function startServer(server_id) {
         broadcastChannelState(channels[Number(updatedChannel.channel_id)]);
     }
 
+    function collectChannelSubtree(channelId) {
+        const targetId = Number(channelId);
+        const ordered = [];
+
+        const walk = currentId => {
+            const children = Object.values(channels)
+                .filter(channel => Number(channel.parent_id) === Number(currentId))
+                .sort((left, right) => {
+                    const leftPos = Number.isFinite(Number(left.position)) ? Number(left.position) : 0;
+                    const rightPos = Number.isFinite(Number(right.position)) ? Number(right.position) : 0;
+                    if (leftPos !== rightPos) {
+                        return leftPos - rightPos;
+                    }
+
+                    return Number(left.channel_id) - Number(right.channel_id);
+                });
+
+            for (const child of children) {
+                walk(Number(child.channel_id));
+            }
+
+            ordered.push(Number(currentId));
+        };
+
+        walk(targetId);
+        return ordered;
+    }
+
+    function findChannelRemovalTarget(channel, movingUser) {
+        let target = channels[Number(channel.parent_id)];
+
+        while (target && target.parent_id !== null && target.parent_id !== undefined) {
+            const targetPermissions = computePermissions(Number(target.channel_id), movingUser, channels, aclState);
+            if ((targetPermissions & PERMISSIONS.Enter) === PERMISSIONS.Enter) {
+                break;
+            }
+
+            target = channels[Number(target.parent_id)];
+        }
+
+        return target || channels[0];
+    }
+
+    async function persistChannelRemoval(user, channelId) {
+        const rootChannelId = Number(channelId);
+        const channel = channels[rootChannelId];
+
+        if (!channel) {
+            return { removedIds: [] };
+        }
+
+        if (rootChannelId === 0) {
+            const error = new Error('Root channel cannot be removed');
+            error.code = 'root_remove';
+            throw error;
+        }
+
+        const currentPermissions = computePermissions(rootChannelId, user, channels, aclState);
+        if ((currentPermissions & PERMISSIONS.Write) !== PERMISSIONS.Write) {
+            const error = new Error('Permission denied');
+            error.code = 'permission';
+            error.permission = PERMISSIONS.Write;
+            error.channelId = rootChannelId;
+            throw error;
+        }
+
+        const removedIds = collectChannelSubtree(rootChannelId);
+        const movedUsers = Object.entries(Users.users)
+            .map(([id, item]) => ({ id: Number(id), item }))
+            .filter(({ item }) => removedIds.includes(Number(item.channelId)));
+
+        await sequelize.transaction(async transaction => {
+            const idList = removedIds.map(id => Number(id)).join(', ');
+
+            await sequelize.query(
+                `DELETE FROM channel_links
+                 WHERE server_id = ${Number(1)}
+                   AND (channel_id IN (${idList}) OR link_id IN (${idList}))`,
+                { transaction }
+            );
+
+            await sequelize.query(
+                `DELETE FROM group_members
+                 WHERE server_id = ${Number(1)}
+                   AND group_id IN (
+                       SELECT group_id
+                       FROM "groups"
+                       WHERE server_id = ${Number(1)}
+                         AND channel_id IN (${idList})
+                   )`,
+                { transaction }
+            );
+
+            await sequelize.query(
+                `DELETE FROM acl
+                 WHERE server_id = ${Number(1)}
+                   AND channel_id IN (${idList})`,
+                { transaction }
+            );
+
+            await sequelize.query(
+                `DELETE FROM channel_info
+                 WHERE server_id = ${Number(1)}
+                   AND channel_id IN (${idList})`,
+                { transaction }
+            );
+
+            await sequelize.query(
+                `DELETE FROM "groups"
+                 WHERE server_id = ${Number(1)}
+                   AND channel_id IN (${idList})`,
+                { transaction }
+            );
+
+            await sequelize.query(
+                `DELETE FROM channels
+                 WHERE server_id = ${Number(1)}
+                   AND channel_id IN (${idList})`,
+                { transaction }
+            );
+        });
+
+        const refreshedChannels = await getChannels(1);
+        await loadChannelLinks(1, refreshedChannels);
+        Object.keys(channels).forEach(key => {
+            delete channels[key];
+        });
+        Object.assign(channels, refreshedChannels);
+
+        const refreshedAclState = await loadAclState(1);
+        refreshAclState(refreshedAclState);
+
+        for (const { id, item } of movedUsers) {
+            const targetChannel = findChannelRemovalTarget(channel, item);
+            const updatedUser = await Users.updateUser(id, {
+                channelId: Number(targetChannel.channel_id)
+            });
+
+            Users.emit('broadcast', 'UserState', updatedUser);
+        }
+
+        for (const removedId of removedIds) {
+            Users.emit('broadcast', 'ChannelRemove', {
+                channelId: Number(removedId)
+            });
+        }
+
+        return { removedIds };
+    }
+
     function broadcastVoicePacket(rawPacket, sourceSession) {
         const sourceChannelId = Users.sessionToChannels[sourceSession];
         if (sourceChannelId === undefined || sourceChannelId === null) {
@@ -1582,14 +1732,49 @@ async function startServer(server_id) {
             connection.state = 'ready';
         });
 
-        connection.on('channelRemove', ({ channelId }) => {
+        connection.on('channelRemove', async ({ channelId }) => {
             if (connection.state !== 'ready') {
                 return;
             }
 
-            Users.emit('broadcast', 'ChannelRemove', {
-                channelId
-            });
+            const user = Users.getUser(uid);
+            if (!user || user.session === undefined) {
+                return;
+            }
+
+            try {
+                await persistChannelRemoval(user, channelId);
+            } catch (err) {
+                log.error({ err }, 'Failed to remove channel');
+
+                if (err.code === 'root_remove') {
+                    connection.sendMessage('PermissionDenied', {
+                        type: 1,
+                        permission: PERMISSIONS.Write,
+                        channelId: 0,
+                        session: user.session,
+                        reason: 'Permission denied'
+                    });
+                    return;
+                }
+
+                if (err.code === 'permission') {
+                    connection.sendMessage('PermissionDenied', {
+                        type: 1,
+                        permission: err.permission,
+                        channelId: err.channelId || Number(channelId) || 0,
+                        session: user.session,
+                        reason: 'Permission denied'
+                    });
+                    return;
+                }
+
+                connection.sendMessage('PermissionDenied', {
+                    type: 0,
+                    session: user.session,
+                    reason: 'Unable to remove channel'
+                });
+            }
         });
 
         connection.on('channelState', async m => {
