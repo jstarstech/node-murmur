@@ -1,4 +1,5 @@
 import dgram from 'dgram';
+import { randomBytes } from 'crypto';
 import tls from 'tls';
 import os from 'os';
 import { fileURLToPath } from 'url';
@@ -79,6 +80,14 @@ function sendChannelState(connection, channel) {
         position: channel.position || '0',
         descriptionHash: null
     });
+}
+
+function createCryptSetup() {
+    return {
+        key: randomBytes(16),
+        clientNonce: randomBytes(16),
+        serverNonce: randomBytes(16)
+    };
 }
 
 async function startServer(server_id) {
@@ -329,14 +338,12 @@ async function startServer(server_id) {
             log.debug(m);
 
             connection.sessionId = Users.getUser(uid).session;
-
-            // connection.sendMessage('Reject', { reason: 'omg test'});
-            // return;
+            connection.cryptSetup = createCryptSetup();
 
             connection.sendMessage('CryptSetup', {
-                key: new Buffer.from('08dvzUdMpExPo9KUxgVYwg==', 'base64'),
-                clientNonce: new Buffer.from('vL2nJU/FURMQIu0HF0XlOA==', 'base64'),
-                serverNonce: new Buffer.from('KhXfffcCF/+WGd8YojVbSQ==', 'base64')
+                key: connection.cryptSetup.key,
+                clientNonce: connection.cryptSetup.clientNonce,
+                serverNonce: connection.cryptSetup.serverNonce
             });
 
             connection.sendMessage('CodecVersion', {
@@ -429,6 +436,26 @@ async function startServer(server_id) {
 
         connection.on('ping', ({ timestamp }) => {
             connection.sendMessage('Ping', { timestamp });
+        });
+
+        connection.on('cryptSetup', msg => {
+            if (!connection.cryptSetup) {
+                return;
+            }
+
+            if (msg.clientNonce && msg.clientNonce.length === 16) {
+                connection.cryptSetup.clientNonce = Buffer.from(msg.clientNonce);
+            }
+
+            if (msg.serverNonce && msg.serverNonce.length === 16) {
+                connection.cryptSetup.serverNonce = Buffer.from(msg.serverNonce);
+            }
+
+            if (!msg.clientNonce || msg.clientNonce.length === 0) {
+                connection.sendMessage('CryptSetup', {
+                    clientNonce: connection.cryptSetup.serverNonce
+                });
+            }
         });
     }).listen(serverConfig.port);
 
