@@ -210,6 +210,218 @@ const aclApplies = (acl, targetChannelId, aclChannelId) => {
     return acl.applySub;
 };
 
+const getAclChain = (channelId, channels) => {
+    const chain = [];
+    let current = channels[Number(channelId)];
+
+    while (current) {
+        chain.unshift(current);
+
+        const parentId = current.parent_id;
+        if (parentId === null || parentId === undefined) {
+            break;
+        }
+
+        if (!bool(current.inheritacl)) {
+            break;
+        }
+
+        current = channels[Number(parentId)];
+    }
+
+    return chain;
+};
+
+const getAncestorGroup = (name, chain, aclState) => {
+    for (let index = chain.length - 2; index >= 0; index -= 1) {
+        const group = aclState.groupsByChannel.get(Number(chain[index].channel_id))?.get(name);
+        if (group) {
+            return group;
+        }
+    }
+
+    return null;
+};
+
+function collectAclView(channelId, channels, aclState) {
+    const currentChannelId = Number(channelId);
+    const currentChannel = channels[currentChannelId] || null;
+    const chain = getAclChain(currentChannelId, channels);
+    const reply = {
+        channelId: currentChannelId,
+        inheritAcls: currentChannel ? bool(currentChannel.inheritacl) : true,
+        groups: [],
+        acls: []
+    };
+    const userIds = new Set();
+    const groupNames = new Set();
+
+    for (const channel of chain) {
+        const groupsForChannel = aclState.groupsByChannel.get(Number(channel.channel_id));
+        if (!groupsForChannel) {
+            continue;
+        }
+
+        for (const name of groupsForChannel.keys()) {
+            groupNames.add(name);
+        }
+    }
+
+    for (const channel of chain) {
+        const aclRows = aclState.aclRowsByChannel.get(Number(channel.channel_id)) || [];
+
+        for (const acl of aclRows) {
+            if (channel.channel_id !== currentChannelId && !acl.applySub) {
+                continue;
+            }
+
+            reply.acls.push({
+                inherited: channel.channel_id !== currentChannelId,
+                applyHere: acl.applyHere,
+                applySubs: acl.applySub,
+                userId: acl.userId !== null && acl.userId !== undefined ? Number(acl.userId) : undefined,
+                group: acl.groupName !== null && acl.groupName !== undefined ? acl.groupName : undefined,
+                grant: acl.grant,
+                deny: acl.deny
+            });
+
+            if (acl.userId !== null && acl.userId !== undefined) {
+                userIds.add(Number(acl.userId));
+            }
+        }
+    }
+
+    for (const name of [...groupNames].sort()) {
+        const localGroup = aclState.groupsByChannel.get(currentChannelId)?.get(name) || null;
+        const ancestorGroup = getAncestorGroup(name, chain, aclState);
+        const group = localGroup || ancestorGroup;
+
+        if (!group) {
+            continue;
+        }
+
+        const inheritedMembers = ancestorGroup
+            ? [...resolveCustomGroupMembers(name, Number(ancestorGroup.channelId), channels, aclState)]
+            : [];
+        const add = localGroup ? [...localGroup.add].map(Number).sort((left, right) => left - right) : [];
+        const remove = localGroup ? [...localGroup.remove].map(Number).sort((left, right) => left - right) : [];
+
+        for (const uid of add) {
+            userIds.add(uid);
+        }
+
+        for (const uid of remove) {
+            userIds.add(uid);
+        }
+
+        for (const uid of inheritedMembers) {
+            userIds.add(uid);
+        }
+
+        reply.groups.push({
+            name,
+            inherited: Boolean(!localGroup && ancestorGroup),
+            inherit: localGroup ? localGroup.inherit : group.inherit,
+            inheritable: localGroup ? localGroup.inheritable : group.inheritable,
+            add,
+            remove,
+            inheritedMembers: inheritedMembers.map(Number).sort((left, right) => left - right)
+        });
+    }
+
+    return { reply, userIds };
+}
+
+function buildAclInsertStatements(serverId, channelId, payload, nextGroupId) {
+    const statements = [];
+    const serverIdNum = Number(serverId);
+    const targetChannelId = Number(channelId);
+    const inheritAcls = Boolean(payload?.inheritAcls ?? true);
+
+    statements.push(
+        `UPDATE channels
+         SET inheritacl = ${inheritAcls ? 1 : 0}
+         WHERE server_id = ${serverIdNum}
+           AND channel_id = ${targetChannelId}`
+    );
+
+    statements.push(
+        `DELETE FROM group_members
+         WHERE server_id = ${serverIdNum}
+           AND group_id IN (
+               SELECT group_id
+               FROM "groups"
+               WHERE server_id = ${serverIdNum}
+                 AND channel_id = ${targetChannelId}
+           )`
+    );
+
+    statements.push(
+        `DELETE FROM acl
+         WHERE server_id = ${serverIdNum}
+           AND channel_id = ${targetChannelId}`
+    );
+
+    statements.push(
+        `DELETE FROM "groups"
+         WHERE server_id = ${serverIdNum}
+           AND channel_id = ${targetChannelId}`
+    );
+
+    let groupId = nextGroupId;
+    for (const group of payload.groups || []) {
+        const currentGroupId = groupId++;
+        statements.push(
+            `INSERT INTO "groups" (group_id, server_id, name, channel_id, inherit, inheritable)
+             VALUES (
+                ${Number(currentGroupId)},
+                ${serverIdNum},
+                ${sequelize.escape(group.name)},
+                ${targetChannelId},
+                ${group.inherit ? 1 : 0},
+                ${group.inheritable ? 1 : 0}
+             )`
+        );
+
+        for (const uid of group.add || []) {
+            statements.push(
+                `INSERT INTO group_members (group_id, server_id, user_id, addit)
+                 VALUES (${Number(currentGroupId)}, ${serverIdNum}, ${Number(uid)}, 1)`
+            );
+        }
+
+        for (const uid of group.remove || []) {
+            statements.push(
+                `INSERT INTO group_members (group_id, server_id, user_id, addit)
+                 VALUES (${Number(currentGroupId)}, ${serverIdNum}, ${Number(uid)}, 0)`
+            );
+        }
+    }
+
+    let priority = 1;
+    for (const acl of payload.acls || []) {
+        const grant = Number(acl.grant || 0) & ALL_PERMISSIONS;
+        const deny = Number(acl.deny || 0) & ALL_PERMISSIONS;
+
+        statements.push(
+            `INSERT INTO acl (server_id, channel_id, priority, user_id, group_name, apply_here, apply_sub, grantpriv, revokepriv)
+             VALUES (
+                ${serverIdNum},
+                ${targetChannelId},
+                ${priority++},
+                ${acl.userId !== null && acl.userId !== undefined ? Number(acl.userId) : 'NULL'},
+                ${acl.group !== null && acl.group !== undefined ? sequelize.escape(acl.group) : 'NULL'},
+                ${acl.applyHere ? 1 : 0},
+                ${acl.applySubs ? 1 : 0},
+                ${grant},
+                ${deny}
+             )`
+        );
+    }
+
+    return statements;
+}
+
 export async function loadAclState(serverId) {
     const [aclRows] = await sequelize.query(
         `SELECT server_id, channel_id, priority, user_id, group_name, apply_here, apply_sub, grantpriv, revokepriv
@@ -331,31 +543,35 @@ export function canEnterChannel(channelId, user, channels, aclState) {
 }
 
 export function buildAclResponse(channelId, channels, aclState) {
-    const channel = channels[channelId];
-    const aclRows = aclState.aclRowsByChannel.get(channelId) || [];
-    const groupsForChannel = aclState.groupsByChannel.get(channelId) || new Map();
-
+    const { reply } = collectAclView(channelId, channels, aclState);
     return {
-        channelId,
-        inheritAcls: channel ? bool(channel.inheritacl) : true,
-        groups: [...groupsForChannel.values()].map(group => ({
-            name: group.name,
-            inherited: false,
-            inherit: group.inherit,
-            inheritable: group.inheritable,
-            add: [...group.add],
-            remove: [...group.remove],
-            inheritedMembers: []
-        })),
-        acls: aclRows.map(acl => ({
-            applyHere: acl.applyHere,
-            applySubs: acl.applySub,
-            inherited: false,
-            userId: acl.userId,
-            group: acl.groupName,
-            grant: acl.grant,
-            deny: acl.deny
-        })),
+        ...reply,
         query: false
     };
+}
+
+export function collectAclUserIds(channelId, channels, aclState) {
+    const { userIds } = collectAclView(channelId, channels, aclState);
+    return [...userIds].sort((left, right) => left - right);
+}
+
+export async function saveAclState(serverId, channelId, payload) {
+    const serverIdNum = Number(serverId);
+    const targetChannelId = Number(channelId);
+
+    await sequelize.transaction(async transaction => {
+        const [maxRows] = await sequelize.query(
+            `SELECT COALESCE(MAX(group_id), 0) AS max_group_id
+             FROM "groups"
+             WHERE server_id = ${serverIdNum}`,
+            { transaction }
+        );
+
+        const nextGroupId = Number(maxRows?.[0]?.max_group_id || 0) + 1;
+        const statements = buildAclInsertStatements(serverIdNum, targetChannelId, payload, nextGroupId);
+
+        for (const statement of statements) {
+            await sequelize.query(statement, { transaction });
+        }
+    });
 }

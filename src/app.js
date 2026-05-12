@@ -7,7 +7,15 @@ import BufferPack from 'bufferpack';
 import * as util from './lib/util.js';
 import MumbleConnection from './lib/MumbleConnection.js';
 import User from './lib/User.js';
-import { buildAclResponse, canEnterChannel, computePermissions, loadAclState, PERMISSIONS } from './lib/Acl.js';
+import {
+    buildAclResponse,
+    canEnterChannel,
+    collectAclUserIds,
+    computePermissions,
+    loadAclState,
+    PERMISSIONS,
+    saveAclState
+} from './lib/Acl.js';
 import CryptState from './lib/CryptState.js';
 import { getVoiceKind, getVoiceTarget, rebuildVoicePacket } from './lib/voice.js';
 import Config from './models/config.js';
@@ -275,12 +283,77 @@ async function sendRegisteredUsers(connection, serverId, query = {}) {
                     ? user.last_active.toISOString()
                     : user.last_active
                       ? new Date(user.last_active).toISOString()
-                      : undefined,
-            lastChannel: user.lastchannel ?? undefined
+                      : undefined
         });
     }
 
     connection.sendMessage('UserList', { users });
+}
+
+async function sendQueryUsers(connection, serverId, query = {}) {
+    const registeredUsers = await getRegisteredUsers(serverId);
+    const requestedIds = Array.isArray(query.ids) ? query.ids.map(id => Number(id)) : [];
+    const requestedNames = Array.isArray(query.names) ? query.names.filter(name => typeof name === 'string') : [];
+    const hasFilter = requestedIds.length > 0 || requestedNames.length > 0;
+    const namesById = new Map();
+    const idsByName = new Map();
+
+    for (const user of registeredUsers) {
+        const userId = Number(user.user_id);
+        namesById.set(userId, user.name);
+        if (typeof user.name === 'string') {
+            idsByName.set(user.name, userId);
+        }
+    }
+
+    const ids = [];
+    const names = [];
+    const seen = new Set();
+
+    const pushUser = (userId, name) => {
+        if (seen.has(userId)) {
+            return;
+        }
+
+        seen.add(userId);
+        ids.push(userId);
+        names.push(name);
+    };
+
+    if (!hasFilter) {
+        for (const user of registeredUsers) {
+            const userId = Number(user.user_id);
+            if (userId === 0) {
+                continue;
+            }
+
+            pushUser(userId, user.name);
+        }
+    } else {
+        for (const userId of requestedIds) {
+            const name = namesById.get(userId);
+            if (typeof name !== 'string' || name.length === 0) {
+                continue;
+            }
+
+            pushUser(userId, name);
+        }
+
+        for (const name of requestedNames) {
+            const userId = idsByName.get(name);
+            if (userId === undefined || userId === null) {
+                continue;
+            }
+
+            pushUser(userId, name);
+        }
+    }
+
+    if (ids.length === 0) {
+        return;
+    }
+
+    connection.sendMessage('QueryUsers', { ids, names });
 }
 
 async function getBans(serverId) {
@@ -407,6 +480,33 @@ async function startServer(server_id) {
 
     function findUserBySession(session) {
         return Object.values(Users.users).find(user => user && user.session === session);
+    }
+
+    function refreshAclState(nextAclState) {
+        aclState.aclRowsByChannel = nextAclState.aclRowsByChannel;
+        aclState.groupsByChannel = nextAclState.groupsByChannel;
+    }
+
+    function canEditAcl(channelId, user) {
+        const requestedChannelId = Number(channelId);
+        const channel = channels[requestedChannelId];
+
+        if (!channel) {
+            return false;
+        }
+
+        const currentPermissions = computePermissions(requestedChannelId, user, channels, aclState);
+        if ((currentPermissions & PERMISSIONS.Write) === PERMISSIONS.Write) {
+            return true;
+        }
+
+        const parentId = channel.parent_id;
+        if (parentId === null || parentId === undefined) {
+            return false;
+        }
+
+        const parentPermissions = computePermissions(Number(parentId), user, channels, aclState);
+        return (parentPermissions & PERMISSIONS.Write) === PERMISSIONS.Write;
     }
 
     function broadcastVoicePacket(rawPacket, sourceSession) {
@@ -583,10 +683,51 @@ async function startServer(server_id) {
                 return;
             }
 
-            if (m.query) {
-                const requestedChannelId = Number(m.channelId || 0);
-                connection.sendMessage('ACL', buildAclResponse(requestedChannelId, channels, aclState));
+            const user = Users.getUser(uid);
+            const requestedChannelId = Number(m.channelId || 0);
+
+            if (!user || user.session === undefined) {
+                return;
             }
+
+            if (!canEditAcl(requestedChannelId, user)) {
+                connection.sendMessage('PermissionDenied', {
+                    type: 1,
+                    permission: PERMISSIONS.Write,
+                    channelId: requestedChannelId,
+                    session: user.session,
+                    reason: 'Permission denied'
+                });
+                return;
+            }
+
+            if (m.query) {
+                connection.sendMessage('ACL', buildAclResponse(requestedChannelId, channels, aclState));
+                sendQueryUsers(connection, 1, { ids: collectAclUserIds(requestedChannelId, channels, aclState) }).catch(
+                    err => {
+                        log.error({ err }, 'Failed to resolve ACL query users');
+                    }
+                );
+                return;
+            }
+
+            saveAclState(1, requestedChannelId, m)
+                .then(async () => {
+                    const refreshedAclState = await loadAclState(1);
+                    refreshAclState(refreshedAclState);
+
+                    if (channels[requestedChannelId]) {
+                        channels[requestedChannelId].inheritacl = m.inheritAcls !== false ? 1 : 0;
+                    }
+                })
+                .catch(err => {
+                    log.error({ err }, 'Failed to save ACL state');
+                    connection.sendMessage('PermissionDenied', {
+                        type: 0,
+                        session: user.session,
+                        reason: 'Unable to save ACL'
+                    });
+                });
         });
 
         connection.on('queryUsers', async m => {
@@ -594,7 +735,7 @@ async function startServer(server_id) {
                 return;
             }
 
-            await sendRegisteredUsers(connection, 1, m);
+            await sendQueryUsers(connection, 1, m);
         });
 
         connection.on('userList', async m => {
