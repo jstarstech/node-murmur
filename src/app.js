@@ -1463,6 +1463,10 @@ async function startServer(server_id) {
         const nextName = nameProvided ? targetName : currentChannel.name;
         const nextTemporary = temporaryProvided ? Boolean(m.temporary) : Boolean(currentChannel.temporary);
 
+        if (targetParentId !== null && !parentChanged) {
+            return;
+        }
+
         const parentChannel = channels[nextParentId];
         if (parentChanged) {
             if (!parentChannel) {
