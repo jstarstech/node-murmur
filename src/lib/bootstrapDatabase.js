@@ -27,7 +27,8 @@ const SCHEMA_STATEMENTS = [
         channel_id INTEGER NOT NULL,
         parent_id INTEGER,
         name TEXT,
-        inheritacl INTEGER
+        inheritacl INTEGER,
+        temporary INTEGER
     )`,
     `CREATE TABLE IF NOT EXISTS channel_info (
         server_id INTEGER NOT NULL,
@@ -121,6 +122,15 @@ function readFileValue(value) {
 async function createSchema() {
     for (const statement of SCHEMA_STATEMENTS) {
         await sequelize.query(statement);
+    }
+}
+
+async function ensureChannelsTemporaryColumn() {
+    const [rows] = await sequelize.query('PRAGMA table_info(channels)');
+    const hasTemporaryColumn = Array.isArray(rows) && rows.some(row => row.name === 'temporary');
+
+    if (!hasTemporaryColumn) {
+        await sequelize.query('ALTER TABLE channels ADD COLUMN temporary INTEGER');
     }
 }
 
@@ -321,6 +331,7 @@ async function seedDatabase() {
 
 export async function ensureDatabaseReady() {
     await createSchema();
+    await ensureChannelsTemporaryColumn();
 
     if (await tableRowCount('servers')) {
         await normalizeExistingServerCertificates(1);

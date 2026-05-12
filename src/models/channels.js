@@ -20,6 +20,9 @@ const Channels = sequelize.define(
         },
         inheritacl: {
             type: DataTypes.INTEGER
+        },
+        temporary: {
+            type: DataTypes.INTEGER
         }
     },
     {

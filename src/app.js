@@ -73,31 +73,78 @@ async function getChannels(server_id) {
             parent_id: null,
             name: 'Root',
             description: '',
-            position: '0'
+            position: '0',
+            links: new Set()
         };
+    } else if (!(channels[0].links instanceof Set)) {
+        channels[0].links = new Set();
+    }
+
+    for (const channel of Object.values(channels)) {
+        if (!(channel.links instanceof Set)) {
+            channel.links = new Set();
+        }
     }
 
     return channels;
 }
 
-function sendChannelState(connection, channel) {
+async function loadChannelLinks(serverId, channels) {
+    const [rows] = await sequelize.query(
+        `SELECT channel_id, link_id
+         FROM channel_links
+         WHERE server_id = ${Number(serverId)}`
+    );
+
+    for (const row of rows || []) {
+        const channelId = Number(row.channel_id);
+        const linkId = Number(row.link_id);
+        const channel = channels[channelId];
+        const linkedChannel = channels[linkId];
+
+        if (!channel || !linkedChannel) {
+            continue;
+        }
+
+        if (!(channel.links instanceof Set)) {
+            channel.links = new Set();
+        }
+
+        if (!(linkedChannel.links instanceof Set)) {
+            linkedChannel.links = new Set();
+        }
+
+        channel.links.add(linkId);
+        linkedChannel.links.add(channelId);
+    }
+}
+
+function buildChannelStatePayload(channel, clientVersion = 0) {
     const description = channel.description || '';
     const descriptionBuffer = Buffer.from(description);
-    const shouldSendHash = descriptionBuffer.length >= 128 && (connection.clientVersion || 0) >= 0x10202;
+    const shouldSendHash = descriptionBuffer.length >= 128 && (clientVersion || 0) >= 0x10202;
     const position = Number.isFinite(Number(channel.position)) ? Number(channel.position) : 0;
+    const links = Array.isArray(channel.links) ? channel.links : channel.links instanceof Set ? [...channel.links] : [];
 
-    connection.sendMessage('ChannelState', {
+    return {
         channelId: channel.channel_id,
         parent: channel.parent_id,
         name: channel.name,
-        links: [],
+        links: links
+            .map(link => Number(link))
+            .filter(link => Number.isFinite(link))
+            .sort((left, right) => left - right),
         linksAdd: [],
         linksRemove: [],
         temporary: Boolean(channel.temporary),
         position,
         description: shouldSendHash ? '' : description,
         descriptionHash: shouldSendHash ? crypto.createHash('sha1').update(descriptionBuffer).digest() : null
-    });
+    };
+}
+
+function sendChannelState(connection, channel) {
+    connection.sendMessage('ChannelState', buildChannelStatePayload(channel, connection.clientVersion));
 }
 
 function sendChannelTree(connection, channels, channel) {
@@ -419,6 +466,7 @@ async function startServer(server_id) {
         serverConfig.host || serverConfig.bindhost || serverConfig.bindip || serverConfig.ip || undefined;
 
     const channels = await getChannels(server_id);
+    await loadChannelLinks(server_id, channels);
     const aclState = await loadAclState(server_id);
 
     const Users = new User(log);
@@ -482,6 +530,20 @@ async function startServer(server_id) {
         return Object.values(Users.users).find(user => user && user.session === session);
     }
 
+    function broadcastChannelState(channel) {
+        const payload = buildChannelStatePayload(channel, 0);
+
+        for (const connection of connectionsBySession.values()) {
+            if (!connection || connection.state !== 'ready') {
+                continue;
+            }
+
+            connection.sendMessage('ChannelState', buildChannelStatePayload(channel, connection.clientVersion));
+        }
+
+        return payload;
+    }
+
     function refreshAclState(nextAclState) {
         aclState.aclRowsByChannel = nextAclState.aclRowsByChannel;
         aclState.groupsByChannel = nextAclState.groupsByChannel;
@@ -507,6 +569,410 @@ async function startServer(server_id) {
 
         const parentPermissions = computePermissions(Number(parentId), user, channels, aclState);
         return (parentPermissions & PERMISSIONS.Write) === PERMISSIONS.Write;
+    }
+
+    async function syncChannelLinks(serverId, channelId, nextLinkIds, transaction) {
+        const serverIdNum = Number(serverId);
+        const channelIdNum = Number(channelId);
+        const normalizedNextLinks = [
+            ...new Set(nextLinkIds.map(id => Number(id)).filter(id => Number.isFinite(id)))
+        ].filter(id => {
+            return id !== channelIdNum && Boolean(channels[id]);
+        });
+
+        const [rows] = await sequelize.query(
+            `SELECT channel_id, link_id
+             FROM channel_links
+             WHERE server_id = ${serverIdNum}
+               AND (channel_id = ${channelIdNum} OR link_id = ${channelIdNum})`,
+            { transaction }
+        );
+
+        const currentLinks = new Set();
+        for (const row of rows || []) {
+            const otherId = Number(row.channel_id) === channelIdNum ? Number(row.link_id) : Number(row.channel_id);
+            if (Number.isFinite(otherId) && otherId !== channelIdNum) {
+                currentLinks.add(otherId);
+            }
+        }
+
+        for (const otherId of currentLinks) {
+            if (normalizedNextLinks.includes(otherId)) {
+                continue;
+            }
+
+            const minId = Math.min(channelIdNum, otherId);
+            const maxId = Math.max(channelIdNum, otherId);
+            await sequelize.query(
+                `DELETE FROM channel_links
+                 WHERE server_id = ${serverIdNum}
+                   AND channel_id = ${minId}
+                   AND link_id = ${maxId}`,
+                { transaction }
+            );
+        }
+
+        for (const otherId of normalizedNextLinks) {
+            if (currentLinks.has(otherId)) {
+                continue;
+            }
+
+            const minId = Math.min(channelIdNum, otherId);
+            const maxId = Math.max(channelIdNum, otherId);
+            await sequelize.query(
+                `INSERT INTO channel_links (server_id, channel_id, link_id)
+                 SELECT ${serverIdNum}, ${minId}, ${maxId}
+                 WHERE NOT EXISTS (
+                     SELECT 1
+                     FROM channel_links
+                     WHERE server_id = ${serverIdNum}
+                     AND channel_id = ${minId}
+                       AND link_id = ${maxId}
+                 )`,
+                { transaction }
+            );
+        }
+    }
+
+    async function setChannelInfoValue(serverId, channelId, key, value, transaction) {
+        await sequelize.query(
+            `DELETE FROM channel_info
+             WHERE server_id = ${Number(serverId)}
+               AND channel_id = ${Number(channelId)}
+               AND key = ${Number(key)}`,
+            { transaction }
+        );
+
+        if (value === null || value === undefined) {
+            return;
+        }
+
+        await sequelize.query(
+            `INSERT INTO channel_info (server_id, channel_id, key, value)
+             VALUES (
+                ${Number(serverId)},
+                ${Number(channelId)},
+                ${Number(key)},
+                ${sequelize.escape(value)}
+             )`,
+            { transaction }
+        );
+    }
+
+    async function persistChannelStateChange(user, userId, m) {
+        const hasChannelId =
+            Object.prototype.hasOwnProperty.call(m, 'channelId') && m.channelId !== null && m.channelId !== undefined;
+        const isCreate = !hasChannelId;
+        const requestedChannelId = hasChannelId ? Number(m.channelId) : null;
+        const targetName = typeof m.name === 'string' ? m.name : null;
+        const targetParentId = Object.prototype.hasOwnProperty.call(m, 'parent') ? Number(m.parent) : null;
+        const temporaryProvided = Object.prototype.hasOwnProperty.call(m, 'temporary');
+        const isTemporary = temporaryProvided ? Boolean(m.temporary) : false;
+        const descriptionProvided = Object.prototype.hasOwnProperty.call(m, 'description');
+        const descriptionValue =
+            descriptionProvided && typeof m.description === 'string' && m.description.length > 0 ? m.description : null;
+        const positionProvided = Object.prototype.hasOwnProperty.call(m, 'position');
+        const linksProvided = Array.isArray(m.linksAdd) || Array.isArray(m.linksRemove);
+        const currentChannel = isCreate ? null : channels[requestedChannelId];
+
+        if (isCreate) {
+            if (targetParentId === null || targetParentId === undefined || !Number.isFinite(targetParentId)) {
+                throw new Error('Invalid parent channel');
+            }
+
+            if (!targetName || targetName.length === 0) {
+                throw new Error('Invalid channel name');
+            }
+
+            const parentChannel = channels[targetParentId];
+            if (!parentChannel) {
+                throw new Error('Invalid parent channel');
+            }
+
+            const requiredPermission = isTemporary ? PERMISSIONS.MakeTempChannel : PERMISSIONS.MakeChannel;
+            const parentPermissions = computePermissions(targetParentId, user, channels, aclState);
+            if ((parentPermissions & requiredPermission) !== requiredPermission) {
+                const error = new Error('Permission denied');
+                error.code = 'permission';
+                error.permission = requiredPermission;
+                error.channelId = targetParentId;
+                throw error;
+            }
+
+            if (!user.hash && (user.userId === null || user.userId === undefined)) {
+                const error = new Error('Missing certificate');
+                error.code = 'missing_certificate';
+                throw error;
+            }
+
+            if (parentChannel.temporary) {
+                const error = new Error('Temporary channel');
+                error.code = 'temporary_parent';
+                throw error;
+            }
+
+            const siblingExists = Object.values(channels).some(channel => {
+                return (
+                    Number(channel.parent_id) === targetParentId &&
+                    typeof channel.name === 'string' &&
+                    channel.name === targetName
+                );
+            });
+            if (siblingExists) {
+                const error = new Error('Channel name already exists');
+                error.code = 'channel_name';
+                throw error;
+            }
+
+            const createdChannel = await sequelize.transaction(async transaction => {
+                const [rows] = await sequelize.query(
+                    `SELECT COALESCE(MAX(channel_id), 0) AS max_channel_id
+                     FROM channels
+                     WHERE server_id = ${Number(1)}`,
+                    { transaction }
+                );
+                const nextChannelId = Number(rows?.[0]?.max_channel_id || 0) + 1;
+
+                await sequelize.query(
+                    `INSERT INTO channels (server_id, channel_id, parent_id, name, inheritacl, temporary)
+                     VALUES (
+                        ${Number(1)},
+                        ${Number(nextChannelId)},
+                        ${Number(targetParentId)},
+                        ${sequelize.escape(targetName)},
+                        1,
+                        ${isTemporary ? 1 : 0}
+                     )`,
+                    { transaction }
+                );
+
+                await setChannelInfoValue(1, nextChannelId, 0, descriptionValue, transaction);
+                if (positionProvided) {
+                    await setChannelInfoValue(1, nextChannelId, 1, Number(m.position || 0), transaction);
+                }
+
+                if (user.userId !== null && user.userId !== undefined) {
+                    await sequelize.query(
+                        `INSERT INTO "groups" (server_id, name, channel_id, inherit, inheritable)
+                         VALUES (1, 'admin', ${Number(nextChannelId)}, 1, 1)`,
+                        { transaction }
+                    );
+
+                    await sequelize.query(
+                        `INSERT INTO group_members (group_id, server_id, user_id, addit)
+                         VALUES (
+                            (SELECT group_id FROM "groups" WHERE server_id = 1 AND channel_id = ${Number(nextChannelId)} AND name = 'admin' LIMIT 1),
+                            1,
+                            ${Number(user.userId)},
+                            1
+                         )`,
+                        { transaction }
+                    );
+                } else if (user.hash) {
+                    await sequelize.query(
+                        `INSERT INTO acl (server_id, channel_id, priority, user_id, group_name, apply_here, apply_sub, grantpriv, revokepriv)
+                         VALUES (1, ${Number(nextChannelId)}, 1, NULL, ${sequelize.escape(`$${user.hash}`)}, 1, 1, ${
+                             PERMISSIONS.Write | PERMISSIONS.Traverse
+                         }, 0)`,
+                        { transaction }
+                    );
+                }
+
+                if (Array.isArray(m.linksAdd) && m.linksAdd.length > 0) {
+                    await syncChannelLinks(1, nextChannelId, m.linksAdd, transaction);
+                }
+
+                const created = {
+                    channel_id: nextChannelId,
+                    parent_id: targetParentId,
+                    name: targetName,
+                    description: descriptionValue || '',
+                    position: positionProvided ? Number(m.position || 0) : 0,
+                    temporary: isTemporary ? 1 : 0,
+                    links: new Set()
+                };
+
+                return created;
+            });
+
+            const refreshedChannels = await getChannels(1);
+            await loadChannelLinks(1, refreshedChannels);
+            Object.keys(channels).forEach(key => {
+                delete channels[key];
+            });
+            Object.assign(channels, refreshedChannels);
+
+            const refreshedAclState = await loadAclState(1);
+            refreshAclState(refreshedAclState);
+
+            const refreshedChannel = channels[createdChannel.channel_id];
+
+            if (createdChannel.temporary) {
+                const updatedUser = await Users.updateUser(userId, {
+                    channelId: createdChannel.channel_id
+                });
+                Users.emit('broadcast', 'UserState', updatedUser, userId);
+            }
+
+            if (refreshedChannel) {
+                broadcastChannelState(refreshedChannel);
+            }
+            return;
+        }
+
+        if (!currentChannel) {
+            throw new Error('Invalid channel');
+        }
+
+        if (currentChannel.channel_id === 0 && targetName !== null && targetName !== currentChannel.name) {
+            const error = new Error('Root channel cannot be renamed');
+            error.code = 'root_rename';
+            throw error;
+        }
+
+        if (targetName !== null && targetName.length === 0) {
+            throw new Error('Invalid channel name');
+        }
+
+        const currentPermissions = computePermissions(requestedChannelId, user, channels, aclState);
+        if (
+            targetName !== null ||
+            descriptionProvided ||
+            positionProvided ||
+            linksProvided ||
+            targetParentId !== null ||
+            temporaryProvided
+        ) {
+            if ((currentPermissions & PERMISSIONS.Write) !== PERMISSIONS.Write) {
+                const error = new Error('Permission denied');
+                error.code = 'permission';
+                error.permission = PERMISSIONS.Write;
+                error.channelId = requestedChannelId;
+                throw error;
+            }
+        }
+
+        if (linksProvided && (currentPermissions & PERMISSIONS.LinkChannel) !== PERMISSIONS.LinkChannel) {
+            const error = new Error('Permission denied');
+            error.code = 'permission';
+            error.permission = PERMISSIONS.LinkChannel;
+            error.channelId = requestedChannelId;
+            throw error;
+        }
+
+        if (linksProvided) {
+            for (const linkId of Array.isArray(m.linksAdd) ? m.linksAdd : []) {
+                const linkedChannel = channels[Number(linkId)];
+                if (!linkedChannel) {
+                    continue;
+                }
+
+                const linkedPermissions = computePermissions(Number(linkId), user, channels, aclState);
+                if ((linkedPermissions & PERMISSIONS.LinkChannel) !== PERMISSIONS.LinkChannel) {
+                    const error = new Error('Permission denied');
+                    error.code = 'permission';
+                    error.permission = PERMISSIONS.LinkChannel;
+                    error.channelId = Number(linkId);
+                    throw error;
+                }
+            }
+        }
+
+        const nextParentId = targetParentId !== null ? targetParentId : Number(currentChannel.parent_id);
+        const parentChanged = targetParentId !== null && Number(targetParentId) !== Number(currentChannel.parent_id);
+        const nextName = targetName !== null ? targetName : currentChannel.name;
+        const nextTemporary = temporaryProvided ? Boolean(m.temporary) : Boolean(currentChannel.temporary);
+
+        const parentChannel = channels[nextParentId];
+        if (parentChanged) {
+            if (!parentChannel) {
+                throw new Error('Invalid parent channel');
+            }
+
+            if (parentChannel.temporary) {
+                const error = new Error('Temporary channel');
+                error.code = 'temporary_parent';
+                throw error;
+            }
+
+            let iter = parentChannel;
+            while (iter) {
+                if (Number(iter.channel_id) === requestedChannelId) {
+                    throw new Error('Illegal channel reparent');
+                }
+                iter =
+                    iter.parent_id !== null && iter.parent_id !== undefined ? channels[Number(iter.parent_id)] : null;
+            }
+
+            const parentPermissions = computePermissions(nextParentId, user, channels, aclState);
+            if ((parentPermissions & PERMISSIONS.MakeChannel) !== PERMISSIONS.MakeChannel) {
+                const error = new Error('Permission denied');
+                error.code = 'permission';
+                error.permission = PERMISSIONS.MakeChannel;
+                error.channelId = nextParentId;
+                throw error;
+            }
+        }
+
+        const siblingExists = Object.values(channels).some(channel => {
+            return (
+                Number(channel.channel_id) !== requestedChannelId &&
+                Number(channel.parent_id) === nextParentId &&
+                typeof channel.name === 'string' &&
+                channel.name === nextName
+            );
+        });
+        if (siblingExists) {
+            const error = new Error('Channel name already exists');
+            error.code = 'channel_name';
+            throw error;
+        }
+
+        const updatedChannel = await sequelize.transaction(async transaction => {
+            await sequelize.query(
+                `UPDATE channels
+                 SET parent_id = ${Number(nextParentId)},
+                     name = ${sequelize.escape(nextName)},
+                     temporary = ${nextTemporary ? 1 : 0}
+                 WHERE server_id = ${Number(1)}
+                   AND channel_id = ${Number(requestedChannelId)}`,
+                { transaction }
+            );
+
+            if (descriptionProvided) {
+                await setChannelInfoValue(1, requestedChannelId, 0, descriptionValue, transaction);
+            }
+
+            if (positionProvided) {
+                await setChannelInfoValue(1, requestedChannelId, 1, Number(m.position || 0), transaction);
+            }
+
+            if (linksProvided) {
+                const currentLinks = new Set(currentChannel.links instanceof Set ? [...currentChannel.links] : []);
+                for (const linkId of Array.isArray(m.linksRemove) ? m.linksRemove : []) {
+                    currentLinks.delete(Number(linkId));
+                }
+                for (const linkId of Array.isArray(m.linksAdd) ? m.linksAdd : []) {
+                    currentLinks.add(Number(linkId));
+                }
+                currentLinks.delete(requestedChannelId);
+                await syncChannelLinks(1, requestedChannelId, [...currentLinks], transaction);
+            }
+
+            return currentChannel;
+        });
+
+        const refreshedChannels = await getChannels(1);
+        await loadChannelLinks(1, refreshedChannels);
+        Object.keys(channels).forEach(key => {
+            delete channels[key];
+        });
+        Object.assign(channels, refreshedChannels);
+
+        const refreshedAclState = await loadAclState(1);
+        refreshAclState(refreshedAclState);
+
+        broadcastChannelState(channels[Number(updatedChannel.channel_id)]);
     }
 
     function broadcastVoicePacket(rawPacket, sourceSession) {
@@ -1124,6 +1590,67 @@ async function startServer(server_id) {
             Users.emit('broadcast', 'ChannelRemove', {
                 channelId
             });
+        });
+
+        connection.on('channelState', async m => {
+            if (connection.state !== 'ready') {
+                return;
+            }
+
+            const user = Users.getUser(uid);
+            if (!user || user.session === undefined) {
+                return;
+            }
+
+            try {
+                await persistChannelStateChange(user, uid, m);
+            } catch (err) {
+                log.error({ err }, 'Failed to save channel state');
+
+                if (err.code === 'missing_certificate') {
+                    connection.sendMessage('PermissionDenied', {
+                        type: 7,
+                        session: user.session,
+                        reason: 'Missing certificate'
+                    });
+                    return;
+                }
+
+                if (err.code === 'channel_name' || err.code === 'root_rename') {
+                    connection.sendMessage('PermissionDenied', {
+                        type: 3,
+                        session: user.session,
+                        reason: 'Invalid channel name'
+                    });
+                    return;
+                }
+
+                if (err.code === 'temporary_parent') {
+                    connection.sendMessage('PermissionDenied', {
+                        type: 6,
+                        session: user.session,
+                        reason: 'Temporary channel'
+                    });
+                    return;
+                }
+
+                if (err.code === 'permission') {
+                    connection.sendMessage('PermissionDenied', {
+                        type: 1,
+                        permission: err.permission,
+                        channelId: err.channelId || 0,
+                        session: user.session,
+                        reason: 'Permission denied'
+                    });
+                    return;
+                }
+
+                connection.sendMessage('PermissionDenied', {
+                    type: 0,
+                    session: user.session,
+                    reason: 'Unable to save channel'
+                });
+            }
         });
 
         connection.on('ping', m => {
