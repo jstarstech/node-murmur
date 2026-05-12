@@ -1408,7 +1408,7 @@ async function startServer(server_id) {
             throw new Error('Invalid channel');
         }
 
-        if (currentChannel.channel_id === 0 && nameProvided && targetName !== currentChannel.name) {
+        if (currentChannel.channel_id === 0 && nameProvided) {
             const error = new Error('Root channel cannot be renamed');
             error.code = 'root_rename';
             throw error;
