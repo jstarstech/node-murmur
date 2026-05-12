@@ -124,12 +124,12 @@ class User extends EventEmitter {
 
             const namedCertHash = namedUserInfo ? namedUserInfo.value : null;
 
-            if (user_data.hash && namedCertHash && namedCertHash !== user_data.hash) {
+            if (!user_data.hash || namedCertHash !== user_data.hash) {
                 rejectAuth = {
                     type: 8,
                     reason: 'Wrong certificate hash'
                 };
-            } else if (!user_data.hash || namedCertHash === user_data.hash) {
+            } else {
                 matchedUser = namedUser;
             }
         }
