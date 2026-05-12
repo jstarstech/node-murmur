@@ -223,6 +223,7 @@ function buildUserStatePayload(
     clientVersion,
     { includeBlobs = false, includeActor = true, includeUnsetFlags = true } = {}
 ) {
+    const has = key => Object.prototype.hasOwnProperty.call(user, key);
     const payload = {
         session: user.session,
         name: user.name,
@@ -241,31 +242,31 @@ function buildUserStatePayload(
         payload.hash = user.hash;
     }
 
-    if (includeUnsetFlags && Object.prototype.hasOwnProperty.call(user, 'deaf')) {
+    if (includeUnsetFlags && has('deaf')) {
         payload.deaf = Boolean(user.deaf);
     }
 
-    if (includeUnsetFlags && Object.prototype.hasOwnProperty.call(user, 'mute')) {
+    if ((includeUnsetFlags && has('mute')) || user.mute === true) {
         payload.mute = Boolean(user.mute);
     }
 
-    if (includeUnsetFlags && Object.prototype.hasOwnProperty.call(user, 'recording')) {
+    if ((includeUnsetFlags && has('recording')) || user.recording === true) {
         payload.recording = Boolean(user.recording);
     }
 
-    if (includeUnsetFlags && Object.prototype.hasOwnProperty.call(user, 'suppress')) {
+    if ((includeUnsetFlags && has('suppress')) || user.suppress === true) {
         payload.suppress = Boolean(user.suppress);
     }
 
-    if (includeUnsetFlags && Object.prototype.hasOwnProperty.call(user, 'selfMute')) {
+    if ((includeUnsetFlags && has('selfMute')) || user.selfMute === true) {
         payload.selfMute = Boolean(user.selfMute);
     }
 
-    if (includeUnsetFlags && Object.prototype.hasOwnProperty.call(user, 'selfDeaf')) {
+    if ((includeUnsetFlags && has('selfDeaf')) || user.selfDeaf === true) {
         payload.selfDeaf = Boolean(user.selfDeaf);
     }
 
-    if (includeUnsetFlags && Object.prototype.hasOwnProperty.call(user, 'prioritySpeaker')) {
+    if ((includeUnsetFlags && has('prioritySpeaker')) || user.prioritySpeaker === true) {
         payload.prioritySpeaker = Boolean(user.prioritySpeaker);
     }
 
@@ -2472,8 +2473,13 @@ async function startServer(server_id) {
             );
         });
 
-        let authUserState = {};
-        connection.on('userState', async m => {
+        const pendingUserStates = [];
+        async function handleUserState(m) {
+            if (!ready) {
+                pendingUserStates.push(m);
+                return;
+            }
+
             const actor = Users.getUser(uid);
             if (!actor || actor.session === undefined) {
                 return;
@@ -2689,91 +2695,82 @@ async function startServer(server_id) {
                 }
             }
 
-            if (auth === false) {
-                authUserState = updateUserState;
-                return;
+            if (textureProvided) {
+                const texture = Buffer.isBuffer(m.texture)
+                    ? Buffer.from(m.texture)
+                    : m.texture
+                      ? Buffer.from(m.texture)
+                      : Buffer.alloc(0);
+
+                if (texture.length === 0) {
+                    if (target.userId !== null && target.userId !== undefined) {
+                        await RegisteredUsers.update(
+                            {
+                                texture: null
+                            },
+                            {
+                                where: {
+                                    server_id: 1,
+                                    user_id: target.userId
+                                }
+                            }
+                        );
+                    }
+
+                    updateUserState.texture = Buffer.alloc(0);
+                    updateUserState.textureHash = Buffer.alloc(0);
+                    updateUserState.textureBlob = '';
+                } else {
+                    const textureBlob = await putBlob(texture);
+
+                    if (target.userId !== null && target.userId !== undefined) {
+                        await RegisteredUsers.update(
+                            {
+                                texture: textureBlob
+                            },
+                            {
+                                where: {
+                                    server_id: 1,
+                                    user_id: target.userId
+                                }
+                            }
+                        );
+                    }
+
+                    updateUserState.texture = texture;
+                    updateUserState.textureHash = Buffer.from(textureBlob, 'hex');
+                    updateUserState.textureBlob = textureBlob;
+                }
             }
 
-            if (ready === false) {
-                return;
-            } else {
-                if (textureProvided) {
-                    const texture = Buffer.isBuffer(m.texture)
-                        ? Buffer.from(m.texture)
-                        : m.texture
-                          ? Buffer.from(m.texture)
-                          : Buffer.alloc(0);
+            if (commentProvided) {
+                const comment = typeof m.comment === 'string' ? m.comment : '';
 
-                    if (texture.length === 0) {
-                        if (target.userId !== null && target.userId !== undefined) {
-                            await RegisteredUsers.update(
-                                {
-                                    texture: null
-                                },
-                                {
-                                    where: {
-                                        server_id: 1,
-                                        user_id: target.userId
-                                    }
-                                }
-                            );
-                        }
-
-                        updateUserState.texture = Buffer.alloc(0);
-                        updateUserState.textureHash = Buffer.alloc(0);
-                        updateUserState.textureBlob = '';
-                    } else {
-                        const textureBlob = await putBlob(texture);
-
-                        if (target.userId !== null && target.userId !== undefined) {
-                            await RegisteredUsers.update(
-                                {
-                                    texture: textureBlob
-                                },
-                                {
-                                    where: {
-                                        server_id: 1,
-                                        user_id: target.userId
-                                    }
-                                }
-                            );
-                        }
-
-                        updateUserState.texture = texture;
-                        updateUserState.textureHash = Buffer.from(textureBlob, 'hex');
-                        updateUserState.textureBlob = textureBlob;
+                if (comment.length === 0) {
+                    if (target.userId !== null && target.userId !== undefined) {
+                        await setUserInfoValue(1, target.userId, 2, null);
                     }
-                }
 
-                if (commentProvided) {
-                    const comment = typeof m.comment === 'string' ? m.comment : '';
+                    updateUserState.comment = '';
+                    updateUserState.commentHash = Buffer.alloc(0);
+                    updateUserState.commentBlob = '';
+                } else {
+                    const commentBlob = await putTextBlob(comment);
 
-                    if (comment.length === 0) {
-                        if (target.userId !== null && target.userId !== undefined) {
-                            await setUserInfoValue(1, target.userId, 2, null);
-                        }
-
-                        updateUserState.comment = '';
-                        updateUserState.commentHash = Buffer.alloc(0);
-                        updateUserState.commentBlob = '';
-                    } else {
-                        const commentBlob = await putTextBlob(comment);
-
-                        if (target.userId !== null && target.userId !== undefined) {
-                            await setUserInfoValue(1, target.userId, 2, commentBlob);
-                        }
-
-                        updateUserState.comment = comment;
-                        updateUserState.commentHash = Buffer.from(commentBlob, 'hex');
-                        updateUserState.commentBlob = commentBlob;
+                    if (target.userId !== null && target.userId !== undefined) {
+                        await setUserInfoValue(1, target.userId, 2, commentBlob);
                     }
-                }
 
-                await Users.updateUser(targetUserId, updateUserState);
+                    updateUserState.comment = comment;
+                    updateUserState.commentHash = Buffer.from(commentBlob, 'hex');
+                    updateUserState.commentBlob = commentBlob;
+                }
             }
 
+            await Users.updateUser(targetUserId, updateUserState);
             Users.emit('broadcast', 'UserState', updateUserState, targetUserId);
-        });
+        }
+        connection.on('userState', handleUserState);
 
         connection.sendMessage('Version', {
             version: util.encodeVersion(1, 2, 4),
@@ -2812,8 +2809,6 @@ async function startServer(server_id) {
             uid = authResult.id;
             connection.state = 'authenticated';
 
-            delete authUserState.channelId;
-            await Users.updateUser(uid, authUserState);
             auth = true;
 
             connection.sessionId = Users.getUser(uid).session;
@@ -2850,7 +2845,7 @@ async function startServer(server_id) {
 
                 connection.sendMessage(
                     'UserState',
-                    buildUserStatePayload(item, targetConnection.clientVersion, {
+                    buildUserStatePayload(item, connection.clientVersion, {
                         includeBlobs: false,
                         includeActor: false,
                         includeUnsetFlags: false
@@ -2884,6 +2879,10 @@ async function startServer(server_id) {
 
             ready = true;
             connection.state = 'ready';
+
+            while (pendingUserStates.length > 0) {
+                await handleUserState(pendingUserStates.shift());
+            }
         });
 
         connection.on('channelRemove', async ({ channelId }) => {
