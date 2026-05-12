@@ -451,8 +451,6 @@ async function startServer(server_id) {
             await Users.updateUser(uid, authUserState);
             auth = true;
 
-            log.debug(m);
-
             connection.sessionId = Users.getUser(uid).session;
             connectionsBySession.set(connection.sessionId, connection);
 
@@ -482,37 +480,6 @@ async function startServer(server_id) {
                     sendChannelState(connection, channel);
                 }
             );
-
-            /*        let permissions = util.writePermissions({
-                          None: 0x00,
-                          Write: 0x01,
-                          Traverse: 0x02,
-                          Enter: 0x04,
-                          Speak: 0x08,
-                          MuteDeafen: 0x10,
-                          Move: 0x20,
-                          MakeChannel: 0x40,
-                          LinkChannel: 0x80,
-                          Whisper: 0x100,
-                          TextMessage: 0x200,
-                          MakeTempChannel: 0x400,
-
-                          // Root only
-                          Kick: 0x10000,
-                          Ban: 0x20000,
-                          Register: 0x40000,
-                          SelfRegister: 0x80000,
-
-                          Cached: 0x8000000,
-                          All: 0xf07ff
-                        });
-                        connection.sendMessage('PermissionQuery', {
-                          channelId: 0,
-                          permissions: permissions,
-                          flush: true
-                        }); */
-
-            // All: 0xf07ff
 
             _.each(Users.users, item => {
                 connection.sendMessage('UserState', item);
@@ -660,6 +627,6 @@ async function startServer(server_id) {
 }
 
 startServer(1).catch(e => {
-    console.log(e);
-    process.exit();
+    log.error(e);
+    process.exit(1);
 });
