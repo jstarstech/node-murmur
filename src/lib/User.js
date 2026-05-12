@@ -138,7 +138,7 @@ class User extends EventEmitter {
     }
 
     updateUser(id, user_data) {
-        const user = this.getUser(id);
+        const user = this.users[id];
 
         if (!user) {
             return {};
@@ -156,7 +156,13 @@ class User extends EventEmitter {
     }
 
     deleteUser(id) {
-        delete this.sessionToChannels[this.users[id].session];
+        const user = this.users[id];
+
+        if (!user) {
+            return;
+        }
+
+        delete this.sessionToChannels[user.session];
         delete this.users[id];
     }
 }
