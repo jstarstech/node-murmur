@@ -218,13 +218,20 @@ function sendChannelTree(connection, channels, channel) {
     }
 }
 
-function buildUserStatePayload(user, clientVersion, { includeBlobs = false } = {}) {
+function buildUserStatePayload(
+    user,
+    clientVersion,
+    { includeBlobs = false, includeActor = true, includeUnsetFlags = true } = {}
+) {
     const payload = {
         session: user.session,
-        actor: user.actor,
         name: user.name,
         channelId: user.channelId
     };
+
+    if (includeActor && user.actor !== null && user.actor !== undefined) {
+        payload.actor = user.actor;
+    }
 
     if (user.userId !== null && user.userId !== undefined) {
         payload.userId = user.userId;
@@ -234,31 +241,31 @@ function buildUserStatePayload(user, clientVersion, { includeBlobs = false } = {
         payload.hash = user.hash;
     }
 
-    if (Object.prototype.hasOwnProperty.call(user, 'deaf')) {
+    if (includeUnsetFlags && Object.prototype.hasOwnProperty.call(user, 'deaf')) {
         payload.deaf = Boolean(user.deaf);
     }
 
-    if (Object.prototype.hasOwnProperty.call(user, 'mute')) {
+    if (includeUnsetFlags && Object.prototype.hasOwnProperty.call(user, 'mute')) {
         payload.mute = Boolean(user.mute);
     }
 
-    if (Object.prototype.hasOwnProperty.call(user, 'recording')) {
+    if (includeUnsetFlags && Object.prototype.hasOwnProperty.call(user, 'recording')) {
         payload.recording = Boolean(user.recording);
     }
 
-    if (Object.prototype.hasOwnProperty.call(user, 'suppress')) {
+    if (includeUnsetFlags && Object.prototype.hasOwnProperty.call(user, 'suppress')) {
         payload.suppress = Boolean(user.suppress);
     }
 
-    if (Object.prototype.hasOwnProperty.call(user, 'selfMute')) {
+    if (includeUnsetFlags && Object.prototype.hasOwnProperty.call(user, 'selfMute')) {
         payload.selfMute = Boolean(user.selfMute);
     }
 
-    if (Object.prototype.hasOwnProperty.call(user, 'selfDeaf')) {
+    if (includeUnsetFlags && Object.prototype.hasOwnProperty.call(user, 'selfDeaf')) {
         payload.selfDeaf = Boolean(user.selfDeaf);
     }
 
-    if (Object.prototype.hasOwnProperty.call(user, 'prioritySpeaker')) {
+    if (includeUnsetFlags && Object.prototype.hasOwnProperty.call(user, 'prioritySpeaker')) {
         payload.prioritySpeaker = Boolean(user.prioritySpeaker);
     }
 
@@ -2823,7 +2830,13 @@ async function startServer(server_id) {
             const rootChannel = channels[0];
             sendChannelTree(connection, channels, rootChannel);
 
-            Users.emit('broadcast', 'UserState', Users.getUser(uid), uid);
+            const initialUserState = buildUserStatePayload(Users.getUser(uid), connection.clientVersion, {
+                includeBlobs: false,
+                includeActor: false,
+                includeUnsetFlags: false
+            });
+
+            Users.emit('broadcast', 'UserState', initialUserState, uid);
 
             _.each(Users.users, item => {
                 if (item.session === connection.sessionId) {
@@ -2837,7 +2850,11 @@ async function startServer(server_id) {
 
                 connection.sendMessage(
                     'UserState',
-                    buildUserStatePayload(item, targetConnection.clientVersion, { includeBlobs: false })
+                    buildUserStatePayload(item, targetConnection.clientVersion, {
+                        includeBlobs: false,
+                        includeActor: false,
+                        includeUnsetFlags: false
+                    })
                 );
             });
 
