@@ -1,6 +1,5 @@
 import { EventEmitter } from 'events';
 import _ from 'underscore';
-import { sequelize } from '../models/index.js';
 import Users from '../models/users.js';
 import UserInfo from '../models/user_info.js';
 
@@ -63,61 +62,6 @@ class User extends EventEmitter {
         });
     }
 
-    async _createUserRecord(user_data) {
-        if (!user_data.hash) {
-            return null;
-        }
-
-        const transaction = await sequelize.transaction();
-
-        try {
-            const newestUser = await Users.findOne({
-                where: {
-                    server_id: 1
-                },
-                order: [['user_id', 'DESC']],
-                transaction
-            });
-            const nextUserId = newestUser ? newestUser.user_id + 1 : 1;
-
-            const createdUser = await Users.create(
-                {
-                    server_id: 1,
-                    user_id: nextUserId,
-                    name: user_data.name,
-                    pw: null,
-                    lastchannel: user_data.channelId || 0,
-                    texture: null,
-                    last_active: new Date()
-                },
-                {
-                    transaction
-                }
-            );
-
-            await UserInfo.create(
-                {
-                    server_id: 1,
-                    user_id: nextUserId,
-                    key: 3,
-                    value: user_data.hash
-                },
-                {
-                    transaction
-                }
-            );
-
-            await transaction.commit();
-
-            return createdUser;
-        } catch (err) {
-            await transaction.rollback();
-            this.log.error(new Error(err));
-
-            return null;
-        }
-    }
-
     async addUser(user_data) {
         const user_model = {
             session: null,
@@ -144,10 +88,11 @@ class User extends EventEmitter {
         let matchedUser = null;
 
         if (user_data.hash) {
-            matchedUser = await Users.findOne({
+            const matchedInfo = await UserInfo.findOne({
                 where: {
                     server_id: 1,
-                    name: user_data.name
+                    key: 3,
+                    value: user_data.hash
                 }
             }).catch(err => {
                 this.log.error(new Error(err));
@@ -155,8 +100,17 @@ class User extends EventEmitter {
                 return null;
             });
 
-            if (!matchedUser) {
-                matchedUser = await this._createUserRecord(user_data);
+            if (matchedInfo && matchedInfo.user_id) {
+                matchedUser = await Users.findOne({
+                    where: {
+                        server_id: 1,
+                        user_id: matchedInfo.user_id
+                    }
+                }).catch(err => {
+                    this.log.error(new Error(err));
+
+                    return null;
+                });
             }
         }
 
