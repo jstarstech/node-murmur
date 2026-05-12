@@ -1,5 +1,6 @@
 import dgram from 'dgram';
 import crypto from 'crypto';
+import net from 'net';
 import tls from 'tls';
 import os from 'os';
 import _ from 'underscore';
@@ -412,6 +413,122 @@ async function getBans(serverId) {
     );
 
     return rows;
+}
+
+function ipv6StringToBuffer(address) {
+    const normalized = address.split('%')[0].toLowerCase();
+    const [leftRaw, rightRaw] = normalized.includes('::') ? normalized.split('::') : [normalized, ''];
+
+    if (normalized.split('::').length > 2) {
+        return Buffer.alloc(0);
+    }
+
+    const parsePart = part => {
+        if (!part) {
+            return [];
+        }
+
+        const pieces = part.split(':').filter(Boolean);
+        const values = [];
+
+        for (const piece of pieces) {
+            if (piece.includes('.')) {
+                const octets = piece.split('.').map(value => Number(value));
+                if (octets.length !== 4 || octets.some(value => !Number.isInteger(value) || value < 0 || value > 255)) {
+                    return null;
+                }
+
+                values.push(((octets[0] << 8) | octets[1]) & 0xffff);
+                values.push(((octets[2] << 8) | octets[3]) & 0xffff);
+                continue;
+            }
+
+            const value = Number.parseInt(piece, 16);
+            if (!Number.isInteger(value) || Number.isNaN(value) || value < 0 || value > 0xffff) {
+                return null;
+            }
+
+            values.push(value);
+        }
+
+        return values;
+    };
+
+    const left = parsePart(leftRaw);
+    const right = parsePart(rightRaw);
+    if (left === null || right === null) {
+        return Buffer.alloc(0);
+    }
+
+    let groups;
+    if (normalized.includes('::')) {
+        const zeroGroups = 8 - (left.length + right.length);
+        if (zeroGroups < 0) {
+            return Buffer.alloc(0);
+        }
+
+        groups = [...left, ...Array(zeroGroups).fill(0), ...right];
+    } else {
+        groups = left;
+        if (groups.length !== 8) {
+            return Buffer.alloc(0);
+        }
+    }
+
+    if (groups.length !== 8) {
+        return Buffer.alloc(0);
+    }
+
+    const buffer = Buffer.alloc(16);
+    groups.forEach((group, index) => {
+        buffer.writeUInt16BE(group & 0xffff, index * 2);
+    });
+    return buffer;
+}
+
+function ipToBanBuffer(address) {
+    if (typeof address !== 'string' || address.length === 0) {
+        return Buffer.alloc(0);
+    }
+
+    const family = net.isIP(address);
+    if (family === 4) {
+        const octets = address.split('.').map(part => Number(part));
+        if (octets.length !== 4 || octets.some(value => !Number.isInteger(value) || value < 0 || value > 255)) {
+            return Buffer.alloc(0);
+        }
+
+        const buffer = Buffer.alloc(16);
+        buffer[10] = 0xff;
+        buffer[11] = 0xff;
+        buffer[12] = octets[0];
+        buffer[13] = octets[1];
+        buffer[14] = octets[2];
+        buffer[15] = octets[3];
+        return buffer;
+    }
+
+    if (family === 6) {
+        return ipv6StringToBuffer(address);
+    }
+
+    return Buffer.alloc(0);
+}
+
+async function storeBanEntry(serverId, entry) {
+    await sequelize.query(
+        `INSERT INTO bans (server_id, base, mask, name, hash, reason, start, duration)
+         VALUES (
+            ${Number(serverId)},
+            ${sequelize.escape(entry.address || Buffer.alloc(0))},
+            ${sequelize.escape(Number(entry.mask || 0))},
+            ${sequelize.escape(entry.name || null)},
+            ${sequelize.escape(entry.hash || null)},
+            ${sequelize.escape(entry.reason || null)},
+            ${sequelize.escape(entry.start || new Date().toISOString())},
+            ${sequelize.escape(Number(entry.duration || 0))}
+         )`
+    );
 }
 
 function sendBanList(connection, bans) {
@@ -1236,7 +1353,18 @@ async function startServer(server_id) {
 
             const user = Users.getUser(uid);
             if (user.session) {
-                Users.emit('broadcast', 'UserRemove', { session: user.session }, uid);
+                const removalInfo = connection.removalInfo || {};
+                Users.emit(
+                    'broadcast',
+                    'UserRemove',
+                    {
+                        session: user.session,
+                        actor: removalInfo.actor,
+                        reason: removalInfo.reason,
+                        ban: removalInfo.ban
+                    },
+                    uid
+                );
                 connectionsBySession.delete(user.session);
                 if (connection.udpaddr) {
                     udpAddrToConnection.delete(getUdpAddrKey(connection.udpaddr));
@@ -1447,6 +1575,74 @@ async function startServer(server_id) {
                     );
                 }
             }
+        });
+
+        connection.on('userRemove', async m => {
+            if (!['authenticated', 'ready'].includes(connection.state)) {
+                return;
+            }
+
+            const actor = Users.getUser(uid);
+            if (!actor || actor.session === undefined) {
+                return;
+            }
+
+            const targetSession = Number(m.session || 0);
+            if (!Number.isFinite(targetSession) || targetSession === 0) {
+                return;
+            }
+
+            const targetConnection = connectionsBySession.get(targetSession);
+            const targetUser = findUserBySession(targetSession);
+            if (!targetConnection || !targetUser || targetUser.session === undefined) {
+                return;
+            }
+
+            const rootPermissions = computePermissions(0, actor, channels, aclState);
+            const perm = m.ban ? PERMISSIONS.Ban : PERMISSIONS.Kick;
+
+            if (targetUser.userId === 0 || (rootPermissions & perm) !== perm) {
+                connection.sendMessage('PermissionDenied', {
+                    type: 1,
+                    permission: perm,
+                    channelId: 0,
+                    session: actor.session,
+                    reason: 'Permission denied'
+                });
+                return;
+            }
+
+            if (m.ban) {
+                const remoteAddress = targetConnection.socket?.socket?.remoteAddress || '';
+                const banRow = {
+                    address: ipToBanBuffer(remoteAddress),
+                    mask: 128,
+                    name: targetUser.name || undefined,
+                    hash: targetUser.hash || undefined,
+                    reason: m.reason || undefined,
+                    start: new Date().toISOString(),
+                    duration: 0
+                };
+
+                try {
+                    await storeBanEntry(1, banRow);
+                } catch (err) {
+                    log.error({ err }, 'Failed to store ban entry');
+                    connection.sendMessage('PermissionDenied', {
+                        type: 0,
+                        session: actor.session,
+                        reason: 'Unable to save ban'
+                    });
+                    return;
+                }
+            }
+
+            targetConnection.removalInfo = {
+                actor: actor.session,
+                reason: m.reason || undefined,
+                ban: Boolean(m.ban)
+            };
+            targetConnection.disconnect();
         });
 
         connection.on('requestBlob', m => {
