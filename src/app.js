@@ -105,7 +105,7 @@ async function startServer(server_id) {
         }
 
         let uid;
-        const auth = false;
+        let auth = false;
         const connection = new MumbleConnection(socket, Users);
 
         function broadcastListener(type, message, sender_uid) {
@@ -183,17 +183,10 @@ async function startServer(server_id) {
                 // All: 0xf07ff
             });
 
-            /* connection.sendMessage('PermissionQuery', {
-                              channelId: m.channelId,
-                              permissions: permissions,
-                              flush: false
-                          }); */
-            console.log(m);
-
-            connection.sendMessage('PermissionDenied', {
+            connection.sendMessage('PermissionQuery', {
                 channelId: m.channelId,
-                type: 1,
-                permission: permissions
+                permissions,
+                flush: false
             });
         });
 
@@ -289,6 +282,7 @@ async function startServer(server_id) {
             });
 
             Users.updateUser(uid, authUserState);
+            auth = true;
 
             log.debug(m);
 
