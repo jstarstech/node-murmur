@@ -383,6 +383,20 @@ function buildUserStatsPayload(
     return payload;
 }
 
+function buildContextActionModifyPayload(action, entry, operation) {
+    const payload = {
+        action,
+        operation
+    };
+
+    if (operation === 0 && entry) {
+        payload.text = entry.text;
+        payload.context = entry.context;
+    }
+
+    return payload;
+}
+
 function collectLinkedChannelIds(channelId, channels) {
     const seen = new Set();
     const stack = [Number(channelId)];
@@ -892,6 +906,7 @@ async function startServer(server_id) {
 
     const Users = new User(log);
     const connectionsBySession = new Map();
+    const contextActions = new Map();
     const udpAddrToConnection = new Map();
     let serverUdp;
 
@@ -968,6 +983,18 @@ async function startServer(server_id) {
     function refreshAclState(nextAclState) {
         aclState.aclRowsByChannel = nextAclState.aclRowsByChannel;
         aclState.groupsByChannel = nextAclState.groupsByChannel;
+    }
+
+    function broadcastContextAction(action, entry, operation) {
+        const payload = buildContextActionModifyPayload(action, entry, operation);
+
+        for (const connection of connectionsBySession.values()) {
+            if (!connection || !['authenticated', 'ready'].includes(connection.state)) {
+                continue;
+            }
+
+            connection.sendMessage('ContextActionModify', payload);
+        }
     }
 
     function canEditAcl(channelId, user) {
@@ -1936,6 +1963,69 @@ async function startServer(server_id) {
             }
         });
 
+        connection.on('contextActionModify', m => {
+            if (!['authenticated', 'ready'].includes(connection.state)) {
+                return;
+            }
+
+            const action = typeof m.action === 'string' ? m.action.trim() : '';
+            if (!action) {
+                return;
+            }
+
+            const operation = Number(m.operation ?? 0);
+            if (operation === 1) {
+                if (contextActions.delete(action)) {
+                    broadcastContextAction(action, null, 1);
+                }
+                return;
+            }
+
+            const text = typeof m.text === 'string' ? m.text.trim() : '';
+            const context = Number(m.context ?? 0);
+            if (!text || !Number.isFinite(context) || context <= 0) {
+                return;
+            }
+
+            const entry = {
+                text,
+                context
+            };
+
+            contextActions.set(action, entry);
+            broadcastContextAction(action, entry, 0);
+        });
+
+        connection.on('contextAction', m => {
+            if (!['authenticated', 'ready'].includes(connection.state)) {
+                return;
+            }
+
+            const action = typeof m.action === 'string' ? m.action.trim() : '';
+            if (!action) {
+                return;
+            }
+
+            if (!contextActions.has(action)) {
+                return;
+            }
+
+            const actor = Users.getUser(uid);
+            if (!actor || actor.session === undefined) {
+                return;
+            }
+
+            const payload = {
+                action,
+                actor: actor.session,
+                session: Number(m.session || 0) || null,
+                channelId: Number(m.channelId || 0) || null
+            };
+
+            log.info(payload, 'Context action triggered');
+            Users.emit('context_action', payload, uid);
+        });
+
         connection.on('voiceTarget', m => {
             const targetId = Number(m.id || 0);
             if (!Number.isFinite(targetId) || targetId < 1 || targetId >= 31) {
@@ -2378,6 +2468,10 @@ async function startServer(server_id) {
                 messageLength: serverConfig.textmessagelength,
                 imageMessageLength: 1131072
             });
+
+            for (const [action, entry] of contextActions.entries()) {
+                connection.sendMessage('ContextActionModify', buildContextActionModifyPayload(action, entry, 0));
+            }
 
             ready = true;
             connection.state = 'ready';
