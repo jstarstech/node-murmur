@@ -24,6 +24,8 @@ async function getChannels(server_id) {
         }
     }).catch(err => {
         log.error(new Error(err));
+
+        return [];
     });
 
     for (const dbChannel of dbChannels) {
