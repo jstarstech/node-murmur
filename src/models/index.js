@@ -4,6 +4,7 @@ const require = createRequire(import.meta.url);
 
 const env = process.env.NODE_ENV || 'development';
 const config = require(`../../config/config.json`)[env];
+config.logging = false;
 
 const sequelize = config.url
     ? new Sequelize(config.url, config)
