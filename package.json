@@ -14,14 +14,10 @@
   "author": "",
   "license": "BSD-2-Clause",
   "dependencies": {
-    "async": "^3.2.6",
     "bufferpack": "0.0.6",
-    "config": "^4.4.1",
     "log4js": "^6.9.1",
-    "nodemon": "^3.1.14",
     "protobufjs": "^8.2.0",
     "sequelize": "^6.37.8",
-    "socket.io": "^4.8.3",
     "sqlite3": "^6.0.1",
     "tweetnacl": "^1.0.3",
     "underscore": "^1.13.8"
@@ -34,6 +30,7 @@
     "eslint": "^10.3.0",
     "eslint-config-prettier": "^10.1.8",
     "eslint-plugin-prettier": "^5.5.5",
-    "prettier": "3.8.3"
+    "prettier": "3.8.3",
+    "nodemon": "^3.1.14"
   }
 }
