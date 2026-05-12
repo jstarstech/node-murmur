@@ -150,12 +150,12 @@ async function startServer(server_id) {
             log.info('User disconnected', err);
         });
 
-        connection.on('disconnect', () => {
+        connection.on('disconnect', async () => {
             log.info('User disconnected');
 
             if (Users.getUser(uid).session) {
                 Users.emit('broadcast', 'UserRemove', { session: Users.getUser(uid).session }, uid);
-                Users.deleteUser(uid);
+                await Users.deleteUser(uid);
             }
 
             Users.removeListener('broadcast', broadcastListener);
@@ -283,6 +283,7 @@ async function startServer(server_id) {
                 channelId: serverConfig.defaultchannel
             });
 
+            delete authUserState.channelId;
             Users.updateUser(uid, authUserState);
             auth = true;
 

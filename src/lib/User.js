@@ -37,6 +37,31 @@ class User extends EventEmitter {
         this.id = 100;
     }
 
+    async _persistLastChannel(user) {
+        if (
+            user.userId === null ||
+            user.userId === undefined ||
+            user.channelId === null ||
+            user.channelId === undefined
+        ) {
+            return;
+        }
+
+        await Users.update(
+            {
+                lastchannel: user.channelId
+            },
+            {
+                where: {
+                    server_id: 1,
+                    user_id: user.userId
+                }
+            }
+        ).catch(err => {
+            this.log.error(new Error(err));
+        });
+    }
+
     async addUser(user_data) {
         const user_model = {
             session: null,
@@ -58,35 +83,72 @@ class User extends EventEmitter {
             pluginContext: [],
             texture: []
         };
+        let rememberedChannel = null;
 
-        const row = await UserInfo.findOne({
+        const namedUser = await Users.findOne({
             where: {
                 server_id: 1,
-                key: 3,
-                value: user_data.hash
+                name: user_data.name
             }
         }).catch(err => {
             this.log.error(new Error(err));
 
-            return {};
+            return null;
         });
 
-        if (row && row.user_id) {
-            const user = await Users.findOne({
+        let matchedUser = null;
+
+        if (namedUser) {
+            const namedUserInfo = await UserInfo.findOne({
                 where: {
                     server_id: 1,
-                    user_id: row.user_id
+                    user_id: namedUser.user_id,
+                    key: 3,
+                    value: user_data.hash
                 }
             }).catch(err => {
                 this.log.error(new Error(err));
 
-                return {};
+                return null;
             });
 
+            if (namedUserInfo) {
+                matchedUser = namedUser;
+            }
+        }
+
+        if (!matchedUser && !namedUser) {
+            const row = await UserInfo.findOne({
+                where: {
+                    server_id: 1,
+                    key: 3,
+                    value: user_data.hash
+                }
+            }).catch(err => {
+                this.log.error(new Error(err));
+
+                return null;
+            });
+
+            if (row && row.user_id) {
+                matchedUser = await Users.findOne({
+                    where: {
+                        server_id: 1,
+                        user_id: row.user_id
+                    }
+                }).catch(err => {
+                    this.log.error(new Error(err));
+
+                    return null;
+                });
+            }
+        }
+
+        if (matchedUser) {
             const rows = await UserInfo.findAll({
                 where: {
                     server_id: 1,
-                    user_id: row.user_id
+                    user_id: matchedUser.user_id
                 }
             }).catch(err => {
                 this.log.error(new Error(err));
@@ -94,9 +156,10 @@ class User extends EventEmitter {
                 return [];
             });
 
-            user_model.userId = user.user_id;
+            user_model.userId = matchedUser.user_id;
             // user_model.textureHash = user.texture;
-            user_model.channelId = user.lastchannel || 0;
+            user_model.channelId = matchedUser.lastchannel || 0;
+            rememberedChannel = matchedUser.lastchannel;
 
             rows.forEach(({ key, value }) => {
                 if (key === 2) {
@@ -109,6 +172,10 @@ class User extends EventEmitter {
         }
 
         _.each(user_data, (item, key) => {
+            if (key === 'channelId' && rememberedChannel !== null && rememberedChannel !== undefined) {
+                return;
+            }
+
             if (user_model[key] !== undefined) {
                 user_model[key] = item;
             }
@@ -125,7 +192,6 @@ class User extends EventEmitter {
         }
 
         this.sessionToChannels[this.users[id].session] = this.users[id].channelId;
-
         return id;
     }
 
@@ -137,7 +203,7 @@ class User extends EventEmitter {
         return this.users[id];
     }
 
-    updateUser(id, user_data) {
+    async updateUser(id, user_data) {
         const user = this.users[id];
 
         if (!user) {
@@ -152,36 +218,21 @@ class User extends EventEmitter {
 
         this.sessionToChannels[this.users[id].session] = this.users[id].channelId;
 
-        if (
-            Object.prototype.hasOwnProperty.call(user_data, 'channelId') &&
-            user.userId !== null &&
-            user.userId !== undefined
-        ) {
-            Users.update(
-                {
-                    lastchannel: user.channelId
-                },
-                {
-                    where: {
-                        server_id: 1,
-                        user_id: user.userId
-                    }
-                }
-            ).catch(err => {
-                this.log.error(new Error(err));
-            });
+        if (Object.prototype.hasOwnProperty.call(user_data, 'channelId')) {
+            await this._persistLastChannel(user);
         }
 
         return user;
     }
 
-    deleteUser(id) {
+    async deleteUser(id) {
         const user = this.users[id];
 
         if (!user) {
             return;
         }
 
+        await this._persistLastChannel(user);
         delete this.sessionToChannels[user.session];
         delete this.users[id];
     }
