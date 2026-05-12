@@ -26,6 +26,7 @@ import ChannelInfo from './models/channel_info.js';
 import RegisteredUsers from './models/users.js';
 import UserInfo from './models/user_info.js';
 import { sequelize } from './models/index.js';
+import { getBlob, getTextBlob, isBlobHash, putBlob, putTextBlob } from './lib/blobStore.js';
 import { ensureDatabaseReady, resolveConfigFileValue } from './lib/bootstrapDatabase.js';
 import { createLogger } from './lib/logger.js';
 
@@ -62,7 +63,14 @@ async function getChannels(server_id) {
 
         for (const channelInfo of channelInfos) {
             if (channelInfo.key === 0) {
-                channels[channelInfo.channel_id].description = channelInfo.value;
+                const descriptionValue = typeof channelInfo.value === 'string' ? channelInfo.value : '';
+                if (isBlobHash(descriptionValue)) {
+                    channels[channelInfo.channel_id].description = (await getTextBlob(descriptionValue)) || '';
+                    channels[channelInfo.channel_id].descriptionBlob = descriptionValue;
+                } else {
+                    channels[channelInfo.channel_id].description = descriptionValue;
+                    channels[channelInfo.channel_id].descriptionBlob = null;
+                }
             }
 
             if (channelInfo.key === 1) {
@@ -145,6 +153,41 @@ function buildChannelStatePayload(channel, clientVersion = 0) {
         description: shouldSendHash ? '' : description,
         descriptionHash: shouldSendHash ? crypto.createHash('sha1').update(descriptionBuffer).digest() : null
     };
+}
+
+async function setChannelDescriptionValue(serverId, channelId, description, transaction) {
+    const channelDescription = typeof description === 'string' ? description : '';
+
+    if (channelDescription.length === 0) {
+        await sequelize.query(
+            `DELETE FROM channel_info
+             WHERE server_id = ${Number(serverId)}
+               AND channel_id = ${Number(channelId)}
+               AND key = 0`,
+            { transaction }
+        );
+        return null;
+    }
+
+    const descriptionHash = await putTextBlob(channelDescription);
+    await sequelize.query(
+        `DELETE FROM channel_info
+         WHERE server_id = ${Number(serverId)}
+           AND channel_id = ${Number(channelId)}
+           AND key = 0`,
+        { transaction }
+    );
+    await sequelize.query(
+        `INSERT INTO channel_info (server_id, channel_id, key, value)
+         VALUES (
+            ${Number(serverId)},
+            ${Number(channelId)},
+            0,
+            ${sequelize.escape(descriptionHash)}
+         )`,
+        { transaction }
+    );
+    return descriptionHash;
 }
 
 function sendChannelState(connection, channel) {
@@ -640,6 +683,31 @@ async function createRegisteredUser(serverId, user, certificateHash) {
     });
 
     return nextUserId;
+}
+
+async function setUserInfoValue(serverId, userId, key, value, transaction) {
+    await sequelize.query(
+        `DELETE FROM user_info
+         WHERE server_id = ${Number(serverId)}
+           AND user_id = ${Number(userId)}
+           AND key = ${Number(key)}`,
+        { transaction }
+    );
+
+    if (value === null || value === undefined) {
+        return;
+    }
+
+    await sequelize.query(
+        `INSERT INTO user_info (server_id, user_id, key, value)
+         VALUES (
+            ${Number(serverId)},
+            ${Number(userId)},
+            ${Number(key)},
+            ${sequelize.escape(value)}
+         )`,
+        { transaction }
+    );
 }
 
 async function sendRegisteredUsers(connection, serverId, query = {}) {
@@ -1265,8 +1333,7 @@ async function startServer(server_id) {
         const temporaryProvided = Object.prototype.hasOwnProperty.call(m, 'temporary');
         const isTemporary = temporaryProvided ? Boolean(m.temporary) : false;
         const descriptionProvided = Object.prototype.hasOwnProperty.call(m, 'description');
-        const descriptionValue =
-            descriptionProvided && typeof m.description === 'string' && m.description.length > 0 ? m.description : null;
+        const descriptionValue = descriptionProvided && typeof m.description === 'string' ? m.description : null;
         const positionProvided = Object.prototype.hasOwnProperty.call(m, 'position');
         const linksProvided = Array.isArray(m.linksAdd) || Array.isArray(m.linksRemove);
         const currentChannel = isCreate ? null : channels[requestedChannelId];
@@ -1342,7 +1409,7 @@ async function startServer(server_id) {
                     { transaction }
                 );
 
-                await setChannelInfoValue(1, nextChannelId, 0, descriptionValue, transaction);
+                await setChannelDescriptionValue(1, nextChannelId, descriptionValue, transaction);
                 if (positionProvided) {
                     await setChannelInfoValue(1, nextChannelId, 1, Number(m.position || 0), transaction);
                 }
@@ -1529,7 +1596,7 @@ async function startServer(server_id) {
             );
 
             if (descriptionProvided) {
-                await setChannelInfoValue(1, requestedChannelId, 0, descriptionValue, transaction);
+                await setChannelDescriptionValue(1, requestedChannelId, descriptionValue, transaction);
             }
 
             if (positionProvided) {
@@ -2287,7 +2354,7 @@ async function startServer(server_id) {
             targetConnection.disconnect();
         });
 
-        connection.on('requestBlob', m => {
+        connection.on('requestBlob', async m => {
             if (!['authenticated', 'ready'].includes(connection.state)) {
                 return;
             }
@@ -2295,26 +2362,44 @@ async function startServer(server_id) {
             const requestedTextures = Array.isArray(m.sessionTexture) ? m.sessionTexture : [];
             for (const session of requestedTextures) {
                 const target = findUserBySession(Number(session));
-                if (!target || !target.texture || target.texture.length === 0) {
+                if (!target || (!target.textureBlob && (!target.texture || target.texture.length === 0))) {
+                    continue;
+                }
+
+                let texture = target.texture;
+                if (target.textureBlob && isBlobHash(target.textureBlob)) {
+                    texture = (await getBlob(target.textureBlob)) || texture;
+                }
+
+                if (!texture || texture.length === 0) {
                     continue;
                 }
 
                 connection.sendMessage('UserState', {
                     session: target.session,
-                    texture: target.texture
+                    texture
                 });
             }
 
             const requestedComments = Array.isArray(m.sessionComment) ? m.sessionComment : [];
             for (const session of requestedComments) {
                 const target = findUserBySession(Number(session));
-                if (!target || !target.comment) {
+                if (!target || (!target.commentBlob && !target.comment)) {
+                    continue;
+                }
+
+                let comment = target.comment;
+                if (target.commentBlob && isBlobHash(target.commentBlob)) {
+                    comment = (await getTextBlob(target.commentBlob)) || comment;
+                }
+
+                if (!comment) {
                     continue;
                 }
 
                 connection.sendMessage('UserState', {
                     session: target.session,
-                    comment: target.comment
+                    comment
                 });
             }
 
@@ -2387,6 +2472,8 @@ async function startServer(server_id) {
                 session: user.session || null,
                 actor: user.session || null
             };
+            const textureProvided = Object.prototype.hasOwnProperty.call(m, 'texture');
+            const commentProvided = Object.prototype.hasOwnProperty.call(m, 'comment');
 
             if (Object.prototype.hasOwnProperty.call(m, 'userId') && m.userId !== null && m.userId !== undefined) {
                 if (user.userId !== null && user.userId !== undefined) {
@@ -2522,6 +2609,78 @@ async function startServer(server_id) {
             if (ready === false) {
                 return;
             } else {
+                if (textureProvided) {
+                    const texture = Buffer.isBuffer(m.texture)
+                        ? Buffer.from(m.texture)
+                        : m.texture
+                          ? Buffer.from(m.texture)
+                          : Buffer.alloc(0);
+
+                    if (texture.length === 0) {
+                        if (user.userId !== null && user.userId !== undefined) {
+                            await RegisteredUsers.update(
+                                {
+                                    texture: null
+                                },
+                                {
+                                    where: {
+                                        server_id: 1,
+                                        user_id: user.userId
+                                    }
+                                }
+                            );
+                        }
+
+                        updateUserState.texture = Buffer.alloc(0);
+                        updateUserState.textureHash = Buffer.alloc(0);
+                        updateUserState.textureBlob = '';
+                    } else {
+                        const textureBlob = await putBlob(texture);
+
+                        if (user.userId !== null && user.userId !== undefined) {
+                            await RegisteredUsers.update(
+                                {
+                                    texture: textureBlob
+                                },
+                                {
+                                    where: {
+                                        server_id: 1,
+                                        user_id: user.userId
+                                    }
+                                }
+                            );
+                        }
+
+                        updateUserState.texture = texture;
+                        updateUserState.textureHash = Buffer.from(textureBlob, 'hex');
+                        updateUserState.textureBlob = textureBlob;
+                    }
+                }
+
+                if (commentProvided) {
+                    const comment = typeof m.comment === 'string' ? m.comment : '';
+
+                    if (comment.length === 0) {
+                        if (user.userId !== null && user.userId !== undefined) {
+                            await setUserInfoValue(1, user.userId, 2, null);
+                        }
+
+                        updateUserState.comment = '';
+                        updateUserState.commentHash = Buffer.alloc(0);
+                        updateUserState.commentBlob = '';
+                    } else {
+                        const commentBlob = await putTextBlob(comment);
+
+                        if (user.userId !== null && user.userId !== undefined) {
+                            await setUserInfoValue(1, user.userId, 2, commentBlob);
+                        }
+
+                        updateUserState.comment = comment;
+                        updateUserState.commentHash = Buffer.from(commentBlob, 'hex');
+                        updateUserState.commentBlob = commentBlob;
+                    }
+                }
+
                 await Users.updateUser(uid, updateUserState);
             }
 

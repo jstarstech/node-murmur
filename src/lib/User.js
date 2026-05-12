@@ -1,8 +1,8 @@
 import { EventEmitter } from 'events';
-import crypto from 'crypto';
 import _ from 'underscore';
 import Users from '../models/users.js';
 import UserInfo from '../models/user_info.js';
+import { getBlob, getTextBlob, isBlobHash, putBlob, putTextBlob } from './blobStore.js';
 import { verifySaltedSha1PasswordHash } from './passwordHash.js';
 
 class User extends EventEmitter {
@@ -16,10 +16,6 @@ class User extends EventEmitter {
         this.log = log;
         this.options = options || {};
         this.id = 100;
-    }
-
-    isSha1Like(value) {
-        return typeof value === 'string' && /^[0-9a-f]{40}$/i.test(value);
     }
 
     async _persistLastChannel(user) {
@@ -62,6 +58,8 @@ class User extends EventEmitter {
             prioritySpeaker: false,
             textureHash: [],
             commentHash: [],
+            textureBlob: '',
+            commentBlob: '',
             hash: '',
             comment: '',
             pluginIdentity: '',
@@ -190,21 +188,80 @@ class User extends EventEmitter {
             rememberedChannel = matchedUser.lastchannel;
 
             if (matchedUser.texture && matchedUser.texture.length > 0) {
-                user_model.texture = Buffer.from(matchedUser.texture);
-                user_model.textureHash = crypto.createHash('sha1').update(user_model.texture).digest();
+                const rawTexture = Buffer.isBuffer(matchedUser.texture)
+                    ? Buffer.from(matchedUser.texture)
+                    : Buffer.from(String(matchedUser.texture));
+
+                if (Buffer.isBuffer(matchedUser.texture) || !isBlobHash(String(matchedUser.texture))) {
+                    const textureBlob = await putBlob(rawTexture);
+                    user_model.texture = rawTexture;
+                    user_model.textureBlob = textureBlob;
+                    user_model.textureHash = Buffer.from(textureBlob, 'hex');
+
+                    await Users.update(
+                        {
+                            texture: textureBlob
+                        },
+                        {
+                            where: {
+                                server_id: 1,
+                                user_id: matchedUser.user_id
+                            }
+                        }
+                    ).catch(err => {
+                        this.log.error(new Error(err));
+                    });
+                } else {
+                    const textureBlob = String(matchedUser.texture);
+                    const texture = await getBlob(textureBlob);
+
+                    if (texture) {
+                        user_model.texture = texture;
+                        user_model.textureBlob = textureBlob;
+                        user_model.textureHash = Buffer.from(textureBlob, 'hex');
+                    }
+                }
             }
 
-            rows.forEach(({ key, value }) => {
+            for (const { key, value } of rows) {
                 if (key === 2) {
-                    if (value && value.length > 0 && !this.isSha1Like(value)) {
-                        user_model.comment = value;
-                        user_model.commentHash = crypto.createHash('sha1').update(Buffer.from(value)).digest();
+                    if (value && value.length > 0) {
+                        const commentValue = String(value);
+
+                        if (!isBlobHash(commentValue)) {
+                            const commentBlob = await putTextBlob(commentValue);
+                            user_model.comment = commentValue;
+                            user_model.commentBlob = commentBlob;
+                            user_model.commentHash = Buffer.from(commentBlob, 'hex');
+
+                            await UserInfo.update(
+                                {
+                                    value: commentBlob
+                                },
+                                {
+                                    where: {
+                                        server_id: 1,
+                                        user_id: matchedUser.user_id,
+                                        key: 2
+                                    }
+                                }
+                            ).catch(err => {
+                                this.log.error(new Error(err));
+                            });
+                        } else {
+                            user_model.commentBlob = commentValue;
+                            user_model.commentHash = Buffer.from(commentValue, 'hex');
+                            const comment = await getTextBlob(commentValue);
+                            if (comment) {
+                                user_model.comment = comment;
+                            }
+                        }
                     }
                 }
                 if (key === 3 && user_data.hash) {
                     user_model.hash = value;
                 }
-            });
+            }
         }
 
         _.each(user_data, (item, key) => {
