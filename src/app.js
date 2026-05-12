@@ -1,4 +1,5 @@
 import dgram from 'dgram';
+import crypto from 'crypto';
 import tls from 'tls';
 import os from 'os';
 import { fileURLToPath } from 'url';
@@ -70,17 +71,21 @@ async function getChannels(server_id) {
 }
 
 function sendChannelState(connection, channel) {
+    const description = channel.description || '';
+    const descriptionBuffer = Buffer.from(description);
+    const shouldSendHash = descriptionBuffer.length >= 128 && (connection.clientVersion || 0) >= 0x10202;
+
     connection.sendMessage('ChannelState', {
         channelId: channel.channel_id,
         parent: channel.parent_id,
         name: channel.name,
         links: [],
-        description: channel.description || '',
         linksAdd: [],
         linksRemove: [],
         temporary: false,
         position: channel.position || '0',
-        descriptionHash: null
+        description: shouldSendHash ? '' : description,
+        descriptionHash: shouldSendHash ? crypto.createHash('sha1').update(descriptionBuffer).digest() : null
     });
 }
 
@@ -234,6 +239,7 @@ async function startServer(server_id) {
 
         let uid;
         let auth = false;
+        let ready = false;
         const connection = new MumbleConnection(socket, Users);
         connection.clientCryptoModes = [];
         connection.lastCryptResync = 0;
@@ -283,6 +289,7 @@ async function startServer(server_id) {
 
         connection.on('version', version => {
             connection.clientCryptoModes = Array.isArray(version.cryptoModes) ? version.cryptoModes : [];
+            connection.clientVersion = version.version || 0;
         });
 
         connection.on('textMessage', ({ channelId, message }) => {
@@ -409,6 +416,11 @@ async function startServer(server_id) {
 
             if (auth === false) {
                 authUserState = updateUserState;
+                return;
+            }
+
+            if (ready === false) {
+                return;
             } else {
                 await Users.updateUser(uid, updateUserState);
             }
@@ -482,6 +494,14 @@ async function startServer(server_id) {
             );
 
             _.each(Users.users, item => {
+                if (item.session === connection.sessionId) {
+                    return;
+                }
+
+                if (!connectionsBySession.has(item.session)) {
+                    return;
+                }
+
                 connection.sendMessage('UserState', item);
             });
 
@@ -511,6 +531,8 @@ async function startServer(server_id) {
                 positional: null,
                 pushToTalk: null
             });
+
+            ready = true;
         });
 
         connection.on('channelRemove', ({ channelId }) => {

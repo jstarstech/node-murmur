@@ -256,7 +256,6 @@ class User extends EventEmitter {
             return;
         }
 
-        await this._persistLastChannel(user);
         delete this.sessionToChannels[user.session];
         delete this.users[id];
     }
