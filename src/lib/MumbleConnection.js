@@ -81,8 +81,9 @@ class MumbleConnection extends EventEmitter {
     _processData(type, data) {
         // Check whether this is an UDP packet or a protobuf message.
         if (Messages.nameById[type] === 'UDPTunnel') {
-            // This is an UDP packet.
-            this._onUDPTunnel(data);
+            // Decode the protobuf wrapper and process the embedded packet.
+            let msg = Messages.decodePacket(type, data);
+            this._processMessage(type, msg);
         } else {
             // Protobuf message, deserialize and process.
             let msg = Messages.decodePacket(type, data);
@@ -128,7 +129,8 @@ class MumbleConnection extends EventEmitter {
      * @param data Voice packet
      **/
     _onUDPTunnel(data) {
-        const voicePacket = rebuildVoicePacket(this.sessionId, data);
+        const packet = data && data.packet ? Buffer.from(data.packet) : Buffer.from(data || []);
+        const voicePacket = rebuildVoicePacket(this.sessionId, packet);
 
         if (!voicePacket) {
             return;
