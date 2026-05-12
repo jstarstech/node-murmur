@@ -55,9 +55,8 @@ class MumbleConnection extends EventEmitter {
 
         this.emit('protocol-out', { type, message: data });
 
-        // Write the message.
-        this.socket.write(prefix);
-        this.socket.write(packet);
+        // Write the message in one chunk to avoid tiny-write latency.
+        this.socket.write(Buffer.concat([prefix, packet]));
     }
 
     /**
