@@ -233,32 +233,32 @@ function buildUserStatePayload(user, clientVersion, { includeBlobs = false } = {
         payload.hash = user.hash;
     }
 
-    if (user.deaf) {
-        payload.deaf = user.deaf;
+    if (Object.prototype.hasOwnProperty.call(user, 'deaf')) {
+        payload.deaf = Boolean(user.deaf);
     }
 
-    if (user.mute) {
-        payload.mute = user.mute;
+    if (Object.prototype.hasOwnProperty.call(user, 'mute')) {
+        payload.mute = Boolean(user.mute);
     }
 
-    if (user.recording) {
-        payload.recording = user.recording;
+    if (Object.prototype.hasOwnProperty.call(user, 'recording')) {
+        payload.recording = Boolean(user.recording);
     }
 
-    if (user.suppress) {
-        payload.suppress = user.suppress;
+    if (Object.prototype.hasOwnProperty.call(user, 'suppress')) {
+        payload.suppress = Boolean(user.suppress);
     }
 
-    if (user.selfMute) {
-        payload.selfMute = user.selfMute;
+    if (Object.prototype.hasOwnProperty.call(user, 'selfMute')) {
+        payload.selfMute = Boolean(user.selfMute);
     }
 
-    if (user.selfDeaf) {
-        payload.selfDeaf = user.selfDeaf;
+    if (Object.prototype.hasOwnProperty.call(user, 'selfDeaf')) {
+        payload.selfDeaf = Boolean(user.selfDeaf);
     }
 
-    if (user.prioritySpeaker) {
-        payload.prioritySpeaker = user.prioritySpeaker;
+    if (Object.prototype.hasOwnProperty.call(user, 'prioritySpeaker')) {
+        payload.prioritySpeaker = Boolean(user.prioritySpeaker);
     }
 
     if (user.pluginIdentity) {
