@@ -2466,60 +2466,85 @@ async function startServer(server_id) {
 
         let authUserState = {};
         connection.on('userState', async m => {
-            const user = Users.getUser(uid);
+            const actor = Users.getUser(uid);
+            if (!actor || actor.session === undefined) {
+                return;
+            }
+
+            let targetUserId = uid;
+            let target = actor;
+
+            if (Object.prototype.hasOwnProperty.call(m, 'session') && m.session !== null && m.session !== undefined) {
+                const requestedSession = Number(m.session);
+                if (!Number.isFinite(requestedSession) || requestedSession <= 0) {
+                    return;
+                }
+
+                const targetEntry = Object.entries(Users.users).find(([, candidate]) => {
+                    return candidate && candidate.session === requestedSession;
+                });
+
+                if (!targetEntry) {
+                    return;
+                }
+
+                targetUserId = Number(targetEntry[0]);
+                target = targetEntry[1];
+            }
 
             const updateUserState = {
-                session: user.session || null,
-                actor: user.session || null
+                session: target.session || null,
+                actor: actor.session || null
             };
             const textureProvided = Object.prototype.hasOwnProperty.call(m, 'texture');
             const commentProvided = Object.prototype.hasOwnProperty.call(m, 'comment');
 
             if (Object.prototype.hasOwnProperty.call(m, 'userId') && m.userId !== null && m.userId !== undefined) {
-                if (user.userId !== null && user.userId !== undefined) {
+                if (target.userId !== null && target.userId !== undefined) {
                     connection.sendMessage('PermissionDenied', {
                         type: 1,
                         permission: PERMISSIONS.SelfRegister,
                         channelId: 0,
-                        session: user.session,
+                        session: actor.session,
                         reason: 'Already registered'
                     });
                     return;
                 }
 
-                if (!user.hash) {
+                if (!target.hash) {
                     connection.sendMessage('PermissionDenied', {
                         type: 7,
-                        session: user.session,
+                        session: actor.session,
                         reason: 'Missing certificate'
                     });
                     return;
                 }
 
-                const rootPermissions = computePermissions(0, user, channels, aclState);
-                if ((rootPermissions & PERMISSIONS.SelfRegister) !== PERMISSIONS.SelfRegister) {
+                const rootPermissions = computePermissions(0, actor, channels, aclState);
+                const requiredPermission = target === actor ? PERMISSIONS.SelfRegister : PERMISSIONS.Register;
+                if ((rootPermissions & requiredPermission) !== requiredPermission) {
                     connection.sendMessage('PermissionDenied', {
                         type: 1,
-                        permission: PERMISSIONS.SelfRegister,
+                        permission: requiredPermission,
                         channelId: 0,
-                        session: user.session,
+                        session: actor.session,
                         reason: 'Permission denied'
                     });
                     return;
                 }
 
                 try {
-                    const registeredUserId = await createRegisteredUser(1, user, user.hash);
-                    const updatedUser = await Users.updateUser(uid, {
+                    const registeredUserId = await createRegisteredUser(1, target, target.hash);
+                    const updatedUser = await Users.updateUser(targetUserId, {
                         userId: registeredUserId
                     });
 
-                    Users.emit('broadcast', 'UserState', updatedUser, uid);
+                    Users.emit('broadcast', 'UserState', updatedUser, targetUserId);
                 } catch (err) {
                     log.error(new Error(err));
                     connection.sendMessage('PermissionDenied', {
                         type: 0,
-                        session: user.session,
+                        session: actor.session,
                         reason: 'Unable to register user'
                     });
                 }
@@ -2527,53 +2552,89 @@ async function startServer(server_id) {
                 return;
             }
 
-            if (Object.prototype.hasOwnProperty.call(m, 'deaf') && m.deaf !== user.deaf) {
+            if (Object.prototype.hasOwnProperty.call(m, 'deaf') && m.deaf !== target.deaf) {
                 updateUserState.deaf = m.deaf;
             }
 
-            if (Object.prototype.hasOwnProperty.call(m, 'mute') && m.mute !== user.mute) {
+            if (Object.prototype.hasOwnProperty.call(m, 'mute') && m.mute !== target.mute) {
                 updateUserState.mute = m.mute;
             }
 
-            if (Object.prototype.hasOwnProperty.call(m, 'recording') && m.recording !== user.recording) {
+            if (Object.prototype.hasOwnProperty.call(m, 'recording') && m.recording !== target.recording) {
                 updateUserState.recording = m.recording;
             }
 
-            if (Object.prototype.hasOwnProperty.call(m, 'suppress') && m.suppress !== user.suppress) {
+            if (Object.prototype.hasOwnProperty.call(m, 'suppress') && m.suppress !== target.suppress) {
                 updateUserState.suppress = m.suppress;
             }
 
-            if (Object.prototype.hasOwnProperty.call(m, 'selfMute') && m.selfMute !== user.selfMute) {
+            if (Object.prototype.hasOwnProperty.call(m, 'selfMute') && m.selfMute !== target.selfMute) {
                 updateUserState.selfMute = m.selfMute;
             }
 
-            if (Object.prototype.hasOwnProperty.call(m, 'selfDeaf') && m.selfDeaf !== user.selfDeaf) {
+            if (Object.prototype.hasOwnProperty.call(m, 'selfDeaf') && m.selfDeaf !== target.selfDeaf) {
                 updateUserState.selfDeaf = m.selfDeaf;
             }
 
-            if (Object.prototype.hasOwnProperty.call(m, 'channelId') && m.channelId !== user.channelId) {
+            if (Object.prototype.hasOwnProperty.call(m, 'channelId') && m.channelId !== target.channelId) {
                 updateUserState.channelId = m.channelId;
             }
 
             if (
                 Object.prototype.hasOwnProperty.call(m, 'prioritySpeaker') &&
-                m.prioritySpeaker !== user.prioritySpeaker
+                m.prioritySpeaker !== target.prioritySpeaker
             ) {
                 updateUserState.prioritySpeaker = m.prioritySpeaker;
             }
 
-            if (Object.prototype.hasOwnProperty.call(m, 'pluginIdentity') && m.pluginIdentity !== user.pluginIdentity) {
+            if (
+                Object.prototype.hasOwnProperty.call(m, 'pluginIdentity') &&
+                m.pluginIdentity !== target.pluginIdentity
+            ) {
                 updateUserState.pluginIdentity = m.pluginIdentity;
             }
 
-            if (Object.prototype.hasOwnProperty.call(m, 'pluginContext') && m.pluginContext !== user.pluginContext) {
+            if (Object.prototype.hasOwnProperty.call(m, 'pluginContext') && m.pluginContext !== target.pluginContext) {
                 updateUserState.pluginContext = m.pluginContext;
+            }
+
+            if (
+                target !== actor &&
+                (Object.prototype.hasOwnProperty.call(updateUserState, 'mute') ||
+                    Object.prototype.hasOwnProperty.call(updateUserState, 'deaf') ||
+                    Object.prototype.hasOwnProperty.call(updateUserState, 'suppress') ||
+                    Object.prototype.hasOwnProperty.call(updateUserState, 'prioritySpeaker'))
+            ) {
+                const rootPermissions = computePermissions(Number(target.channelId || 0), actor, channels, aclState);
+                const requiresMuteDeafen = (rootPermissions & PERMISSIONS.MuteDeafen) === PERMISSIONS.MuteDeafen;
+
+                if (target.userId === 0 || !requiresMuteDeafen) {
+                    connection.sendMessage('PermissionDenied', {
+                        type: 1,
+                        permission: PERMISSIONS.MuteDeafen,
+                        channelId: Number(target.channelId || 0),
+                        session: actor.session,
+                        reason: 'Permission denied'
+                    });
+                    return;
+                }
+
+                if (Object.prototype.hasOwnProperty.call(updateUserState, 'suppress')) {
+                    connection.sendMessage('PermissionDenied', {
+                        type: 1,
+                        permission: PERMISSIONS.MuteDeafen,
+                        channelId: Number(target.channelId || 0),
+                        session: actor.session,
+                        reason: 'Permission denied'
+                    });
+                    return;
+                }
             }
 
             if (
                 auth === true &&
                 Object.prototype.hasOwnProperty.call(updateUserState, 'channelId') &&
-                updateUserState.channelId !== user.channelId
+                updateUserState.channelId !== target.channelId
             ) {
                 const requestedChannelId = Number(updateUserState.channelId);
                 const destinationChannel = channels[requestedChannelId];
@@ -2583,18 +2644,37 @@ async function startServer(server_id) {
                         type: 1,
                         permission: PERMISSIONS.Enter,
                         channelId: requestedChannelId,
-                        session: user.session,
+                        session: actor.session,
                         reason: 'Unknown channel'
                     });
                     return;
                 }
 
-                if (!canEnterChannel(requestedChannelId, user, channels, aclState)) {
+                if (target !== actor) {
+                    const actorPermissions = computePermissions(
+                        Number(target.channelId || 0),
+                        actor,
+                        channels,
+                        aclState
+                    );
+                    if ((actorPermissions & PERMISSIONS.Move) !== PERMISSIONS.Move) {
+                        connection.sendMessage('PermissionDenied', {
+                            type: 1,
+                            permission: PERMISSIONS.Move,
+                            channelId: Number(target.channelId || 0),
+                            session: actor.session,
+                            reason: 'Permission denied'
+                        });
+                        return;
+                    }
+                }
+
+                if (!canEnterChannel(requestedChannelId, target, channels, aclState)) {
                     connection.sendMessage('PermissionDenied', {
                         type: 1,
                         permission: PERMISSIONS.Enter,
                         channelId: requestedChannelId,
-                        session: user.session,
+                        session: actor.session,
                         reason: 'Permission denied'
                     });
                     return;
@@ -2617,7 +2697,7 @@ async function startServer(server_id) {
                           : Buffer.alloc(0);
 
                     if (texture.length === 0) {
-                        if (user.userId !== null && user.userId !== undefined) {
+                        if (target.userId !== null && target.userId !== undefined) {
                             await RegisteredUsers.update(
                                 {
                                     texture: null
@@ -2625,7 +2705,7 @@ async function startServer(server_id) {
                                 {
                                     where: {
                                         server_id: 1,
-                                        user_id: user.userId
+                                        user_id: target.userId
                                     }
                                 }
                             );
@@ -2637,7 +2717,7 @@ async function startServer(server_id) {
                     } else {
                         const textureBlob = await putBlob(texture);
 
-                        if (user.userId !== null && user.userId !== undefined) {
+                        if (target.userId !== null && target.userId !== undefined) {
                             await RegisteredUsers.update(
                                 {
                                     texture: textureBlob
@@ -2645,7 +2725,7 @@ async function startServer(server_id) {
                                 {
                                     where: {
                                         server_id: 1,
-                                        user_id: user.userId
+                                        user_id: target.userId
                                     }
                                 }
                             );
@@ -2661,8 +2741,8 @@ async function startServer(server_id) {
                     const comment = typeof m.comment === 'string' ? m.comment : '';
 
                     if (comment.length === 0) {
-                        if (user.userId !== null && user.userId !== undefined) {
-                            await setUserInfoValue(1, user.userId, 2, null);
+                        if (target.userId !== null && target.userId !== undefined) {
+                            await setUserInfoValue(1, target.userId, 2, null);
                         }
 
                         updateUserState.comment = '';
@@ -2671,8 +2751,8 @@ async function startServer(server_id) {
                     } else {
                         const commentBlob = await putTextBlob(comment);
 
-                        if (user.userId !== null && user.userId !== undefined) {
-                            await setUserInfoValue(1, user.userId, 2, commentBlob);
+                        if (target.userId !== null && target.userId !== undefined) {
+                            await setUserInfoValue(1, target.userId, 2, commentBlob);
                         }
 
                         updateUserState.comment = comment;
@@ -2681,10 +2761,10 @@ async function startServer(server_id) {
                     }
                 }
 
-                await Users.updateUser(uid, updateUserState);
+                await Users.updateUser(targetUserId, updateUserState);
             }
 
-            Users.emit('broadcast', 'UserState', updateUserState, uid);
+            Users.emit('broadcast', 'UserState', updateUserState, targetUserId);
         });
 
         connection.sendMessage('Version', {
