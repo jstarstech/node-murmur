@@ -306,13 +306,21 @@ async function startServer(server_id) {
                     ? peerCertificate.fingerprint.replace(/:/g, '').toLowerCase()
                     : null;
 
-            uid = await Users.addUser({
+            const authResult = await Users.addUser({
                 name: m.username,
                 password: m.password,
                 opus: m.opus,
                 hash: certificateHash,
                 channelId: serverConfig.defaultchannel
             });
+
+            if (authResult.reject) {
+                connection.sendMessage('Reject', authResult.reject);
+                connection.disconnect();
+                return;
+            }
+
+            uid = authResult.id;
 
             delete authUserState.channelId;
             Users.updateUser(uid, authUserState);

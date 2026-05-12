@@ -86,8 +86,55 @@ class User extends EventEmitter {
         let rememberedChannel = null;
 
         let matchedUser = null;
+        let rejectAuth = null;
 
-        if (user_data.hash) {
+        if (!user_data.name) {
+            return {
+                id: null,
+                reject: {
+                    type: 2,
+                    reason: 'Invalid username'
+                }
+            };
+        }
+
+        const namedUser = await Users.findOne({
+            where: {
+                server_id: 1,
+                name: user_data.name
+            }
+        }).catch(err => {
+            this.log.error(new Error(err));
+
+            return null;
+        });
+
+        if (namedUser) {
+            const namedUserInfo = await UserInfo.findOne({
+                where: {
+                    server_id: 1,
+                    user_id: namedUser.user_id,
+                    key: 3
+                }
+            }).catch(err => {
+                this.log.error(new Error(err));
+
+                return null;
+            });
+
+            const namedCertHash = namedUserInfo ? namedUserInfo.value : null;
+
+            if (user_data.hash && namedCertHash && namedCertHash !== user_data.hash) {
+                rejectAuth = {
+                    type: 8,
+                    reason: 'Wrong certificate hash'
+                };
+            } else if (!user_data.hash || namedCertHash === user_data.hash) {
+                matchedUser = namedUser;
+            }
+        }
+
+        if (!matchedUser && !rejectAuth && user_data.hash) {
             const matchedInfo = await UserInfo.findOne({
                 where: {
                     server_id: 1,
@@ -151,6 +198,10 @@ class User extends EventEmitter {
             }
         });
 
+        if (matchedUser) {
+            user_model.name = matchedUser.name;
+        }
+
         const id = this.id++;
 
         this.users[id] = user_model;
@@ -162,7 +213,10 @@ class User extends EventEmitter {
         }
 
         this.sessionToChannels[this.users[id].session] = this.users[id].channelId;
-        return id;
+        return {
+            id,
+            reject: rejectAuth
+        };
     }
 
     getUser(id) {
