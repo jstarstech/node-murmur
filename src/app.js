@@ -15,6 +15,7 @@ import { getVoiceKind, getVoiceTarget, rebuildVoicePacket } from './lib/voice.js
 import Config from './models/config.js';
 import Channels from './models/channels.js';
 import ChannelInfo from './models/channel_info.js';
+import { ensureDatabaseReady, resolveConfigFileValue } from './lib/bootstrapDatabase.js';
 
 log4js.configure(fileURLToPath(new URL('../config/log4js.json', import.meta.url)));
 const log = log4js.getLogger();
@@ -207,6 +208,12 @@ async function startServer(server_id) {
         if (dbConfig.value === 'true' || dbConfig.value === 'false') {
             dbConfig.value = dbConfig.value === 'true';
         }
+
+        if (dbConfig.key === 'key' || dbConfig.key === 'certificate') {
+            serverConfig[dbConfig.key] = resolveConfigFileValue(dbConfig.value);
+            continue;
+        }
+
         serverConfig[dbConfig.key] = dbConfig.value;
     }
 
@@ -817,6 +824,8 @@ async function startServer(server_id) {
 
     serverUdp.bind(serverConfig.port);
 }
+
+await ensureDatabaseReady();
 
 startServer(1).catch(e => {
     log.error(e);
