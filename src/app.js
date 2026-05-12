@@ -30,6 +30,7 @@ import { ensureDatabaseReady, resolveConfigFileValue } from './lib/bootstrapData
 import { createLogger } from './lib/logger.js';
 
 const log = createLogger();
+const CELT_COMPAT_BITSTREAM = -2147483637;
 
 async function getChannels(server_id) {
     const channels = {};
@@ -395,6 +396,15 @@ function buildContextActionModifyPayload(action, entry, operation) {
     }
 
     return payload;
+}
+
+function buildCodecVersionPayload(codecState) {
+    return {
+        alpha: Number(codecState.alpha || 0),
+        beta: Number(codecState.beta || 0),
+        preferAlpha: Boolean(codecState.preferAlpha),
+        opus: Boolean(codecState.opus)
+    };
 }
 
 function collectLinkedChannelIds(channelId, channels) {
@@ -908,6 +918,12 @@ async function startServer(server_id) {
     const connectionsBySession = new Map();
     const contextActions = new Map();
     const udpAddrToConnection = new Map();
+    const codecState = {
+        alpha: CELT_COMPAT_BITSTREAM,
+        beta: CELT_COMPAT_BITSTREAM,
+        preferAlpha: true,
+        opus: false
+    };
     let serverUdp;
 
     function getUdpAddrKey(rinfo) {
@@ -995,6 +1011,125 @@ async function startServer(server_id) {
 
             connection.sendMessage('ContextActionModify', payload);
         }
+    }
+
+    function getEffectiveClientCodecs(connection) {
+        if (
+            !connection ||
+            !Array.isArray(connection.clientCeltVersions) ||
+            connection.clientCeltVersions.length === 0
+        ) {
+            return [CELT_COMPAT_BITSTREAM];
+        }
+
+        return connection.clientCeltVersions
+            .filter(codec => Number.isInteger(Number(codec)))
+            .map(codec => Number(codec));
+    }
+
+    function updateCodecVersions(connectingConnection = null) {
+        const codecUsers = new Map();
+        let users = 0;
+        let opusUsers = 0;
+        const opusWarningText =
+            "<strong>WARNING:</strong> Your client doesn't support the Opus codec the server is switching to, you won't be able to talk or hear anyone. Please upgrade to a client with Opus support.";
+
+        for (const connection of connectionsBySession.values()) {
+            if (!connection || connection.state !== 'ready') {
+                continue;
+            }
+
+            users += 1;
+            if (connection.clientOpus) {
+                opusUsers += 1;
+            }
+
+            for (const codec of getEffectiveClientCodecs(connection)) {
+                codecUsers.set(codec, (codecUsers.get(codec) || 0) + 1);
+            }
+        }
+
+        if (connectingConnection) {
+            users += 1;
+            if (connectingConnection.clientOpus) {
+                opusUsers += 1;
+            }
+
+            for (const codec of getEffectiveClientCodecs(connectingConnection)) {
+                codecUsers.set(codec, (codecUsers.get(codec) || 0) + 1);
+            }
+        }
+
+        let winner = CELT_COMPAT_BITSTREAM;
+        let count = 0;
+        for (const [codec, codecCount] of codecUsers.entries()) {
+            if (codecCount > count || (codecCount === count && codec > winner)) {
+                count = codecCount;
+                winner = codec;
+            }
+        }
+
+        const enableOpus = users > 0 && users === opusUsers;
+        const current = codecState.preferAlpha ? codecState.alpha : codecState.beta;
+
+        if (winner !== current) {
+            if (winner === CELT_COMPAT_BITSTREAM) {
+                codecState.preferAlpha = true;
+            } else {
+                codecState.preferAlpha = !codecState.preferAlpha;
+            }
+
+            if (codecState.preferAlpha) {
+                codecState.alpha = winner;
+            } else {
+                codecState.beta = winner;
+            }
+        } else if (codecState.opus === enableOpus) {
+            if (codecState.opus && connectingConnection && !connectingConnection.clientOpus) {
+                connectingConnection.sendMessage('TextMessage', {
+                    session: [connectingConnection.sessionId],
+                    message: opusWarningText
+                });
+            }
+            return false;
+        }
+
+        const changed = codecState.opus !== enableOpus || winner !== current;
+        codecState.opus = enableOpus;
+
+        if (changed) {
+            for (const connection of connectionsBySession.values()) {
+                if (!connection || !['authenticated', 'ready'].includes(connection.state)) {
+                    continue;
+                }
+
+                connection.sendMessage('CodecVersion', buildCodecVersionPayload(codecState));
+            }
+
+            if (codecState.opus) {
+                for (const connection of connectionsBySession.values()) {
+                    if (!connection || !['authenticated', 'ready'].includes(connection.state)) {
+                        continue;
+                    }
+
+                    if (!connection.clientOpus) {
+                        connection.sendMessage('TextMessage', {
+                            session: [connection.sessionId],
+                            message: opusWarningText
+                        });
+                    }
+                }
+
+                if (connectingConnection && !connectingConnection.clientOpus) {
+                    connectingConnection.sendMessage('TextMessage', {
+                        session: [connectingConnection.sessionId],
+                        message: opusWarningText
+                    });
+                }
+            }
+        }
+
+        return changed;
     }
 
     function canEditAcl(channelId, user) {
@@ -1751,9 +1886,15 @@ async function startServer(server_id) {
                 await Users.deleteUser(uid);
             }
 
+            if (connection.sessionId !== undefined && connection.sessionId !== null) {
+                connectionsBySession.delete(connection.sessionId);
+            }
+
             if (connection.voiceTargets) {
                 connection.voiceTargets.clear();
             }
+
+            updateCodecVersions();
 
             Users.removeListener('broadcast', broadcastListener);
             Users.removeListener('broadcast_audio', broadcastAudio);
@@ -2468,6 +2609,11 @@ async function startServer(server_id) {
                 messageLength: serverConfig.textmessagelength,
                 imageMessageLength: 1131072
             });
+
+            const codecChanged = updateCodecVersions(connection);
+            if (!codecChanged) {
+                connection.sendMessage('CodecVersion', buildCodecVersionPayload(codecState));
+            }
 
             for (const [action, entry] of contextActions.entries()) {
                 connection.sendMessage('ContextActionModify', buildContextActionModifyPayload(action, entry, 0));
