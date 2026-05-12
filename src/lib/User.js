@@ -6,28 +6,7 @@ import UserInfo from '../models/user_info.js';
 import { verifySaltedSha1PasswordHash } from './passwordHash.js';
 
 class User extends EventEmitter {
-    users = {
-        0: {
-            session: 10,
-            name: 'Telegram',
-            userId: null,
-            deaf: false,
-            mute: false,
-            recording: false,
-            suppress: false,
-            selfMute: false,
-            selfDeaf: false,
-            channelId: 30,
-            prioritySpeaker: false,
-            textureHash: [],
-            commentHash: [],
-            hash: '',
-            comment: '',
-            pluginIdentity: '',
-            pluginContext: [],
-            texture: []
-        }
-    };
+    users = {};
 
     sessionToChannels = {};
 
