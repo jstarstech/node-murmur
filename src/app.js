@@ -177,6 +177,10 @@ async function startServer(server_id) {
         }
     }
 
+    function findUserBySession(session) {
+        return Object.values(Users.users).find(user => user && user.session === session);
+    }
+
     function broadcastVoicePacket(rawPacket, sourceSession) {
         const sourceChannelId = Users.sessionToChannels[sourceSession];
         if (sourceChannelId === undefined || sourceChannelId === null) {
@@ -346,6 +350,51 @@ async function startServer(server_id) {
             if (m.query) {
                 const requestedChannelId = Number(m.channelId || 0);
                 connection.sendMessage('ACL', buildAclResponse(requestedChannelId, channels, aclState));
+            }
+        });
+
+        connection.on('requestBlob', m => {
+            if (!['authenticated', 'ready'].includes(connection.state)) {
+                return;
+            }
+
+            const requestedTextures = Array.isArray(m.sessionTexture) ? m.sessionTexture : [];
+            for (const session of requestedTextures) {
+                const target = findUserBySession(Number(session));
+                if (!target || !target.texture || target.texture.length === 0) {
+                    continue;
+                }
+
+                connection.sendMessage('UserState', {
+                    session: target.session,
+                    texture: target.texture
+                });
+            }
+
+            const requestedComments = Array.isArray(m.sessionComment) ? m.sessionComment : [];
+            for (const session of requestedComments) {
+                const target = findUserBySession(Number(session));
+                if (!target || !target.comment) {
+                    continue;
+                }
+
+                connection.sendMessage('UserState', {
+                    session: target.session,
+                    comment: target.comment
+                });
+            }
+
+            const requestedDescriptions = Array.isArray(m.channelDescription) ? m.channelDescription : [];
+            for (const channelId of requestedDescriptions) {
+                const channel = channels[Number(channelId)];
+                if (!channel || !channel.description) {
+                    continue;
+                }
+
+                connection.sendMessage('ChannelState', {
+                    channelId: channel.channel_id,
+                    description: channel.description
+                });
             }
         });
 
