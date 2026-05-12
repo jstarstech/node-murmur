@@ -2,6 +2,7 @@ import { EventEmitter } from 'events';
 import MumbleSocket from './MumbleSocket.js';
 import Messages from './MumbleMessageMap.js';
 import * as util from './util.js';
+import { rebuildVoicePacket } from './voice.js';
 const DIR = util.dir;
 const TRACE = util.trace;
 
@@ -48,7 +49,7 @@ class MumbleConnection extends EventEmitter {
         let packet = Messages.buildPacket(type, data);
 
         // Create the prefix.
-        let prefix = new Buffer(6);
+        let prefix = Buffer.alloc(6);
         prefix.writeUInt16BE(Messages.idByName[type], 0);
         prefix.writeUInt32BE(packet.length, 2);
 
@@ -127,40 +128,13 @@ class MumbleConnection extends EventEmitter {
      * @param data Voice packet
      **/
     _onUDPTunnel(data) {
-        // Voice data type
-        let target = data[0] & 0x1f;
-        let type = (data[0] & 0xe0) >> 5;
+        const voicePacket = rebuildVoicePacket(this.sessionId, data);
 
-        // Ignore the packet if we don't understand the codec value.
-        if (!this.codecValues[type]) {
+        if (!voicePacket) {
             return;
         }
 
-        // Read the rest of the header.
-        let sequence = util.fromVarint(data.slice(1));
-        let packet = data.slice(1 + sequence.length);
-        let sequenceVarint = util.toVarint(sequence.value);
-
-        let typetarget = (type << 5) | target;
-
-        let sessionId = util.toVarint(this.sessionId);
-
-        // Client side voice header.
-        let voiceHeader = new Buffer(1 + sequenceVarint.length + sessionId.length);
-        voiceHeader[0] = typetarget;
-        sessionId.value.copy(voiceHeader, 1, 0);
-        sequenceVarint.value.copy(voiceHeader, 2, 0);
-
-        // UDP tunnel prefix.
-        let prefix = new Buffer(6);
-        prefix.writeUInt16BE(Messages.idByName.UDPTunnel, 0);
-        prefix.writeUInt32BE(voiceHeader.length + packet.length, 2);
-
-        this.Users.emit('broadcast_audio', prefix, this.sessionId);
-
-        // Write the voice header
-        this.Users.emit('broadcast_audio', voiceHeader, this.sessionId);
-        this.Users.emit('broadcast_audio', packet, this.sessionId);
+        this.Users.emit('broadcast_audio', voicePacket, this.sessionId);
     }
 
     /**

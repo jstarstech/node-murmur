@@ -1,5 +1,4 @@
 import dgram from 'dgram';
-import { randomBytes } from 'crypto';
 import tls from 'tls';
 import os from 'os';
 import { fileURLToPath } from 'url';
@@ -10,6 +9,8 @@ import * as util from './lib/util.js';
 import MumbleConnection from './lib/MumbleConnection.js';
 import User from './lib/User.js';
 import { buildAclResponse, canEnterChannel, computePermissions, loadAclState, PERMISSIONS } from './lib/Acl.js';
+import CryptState from './lib/CryptState.js';
+import { getVoiceKind, getVoiceTarget, rebuildVoicePacket } from './lib/voice.js';
 import Config from './models/config.js';
 import Channels from './models/channels.js';
 import ChannelInfo from './models/channel_info.js';
@@ -83,14 +84,6 @@ function sendChannelState(connection, channel) {
     });
 }
 
-function createCryptSetup() {
-    return {
-        key: randomBytes(16),
-        clientNonce: randomBytes(16),
-        serverNonce: randomBytes(16)
-    };
-}
-
 async function startServer(server_id) {
     const serverConfig = {};
 
@@ -123,6 +116,103 @@ async function startServer(server_id) {
     const aclState = await loadAclState(server_id);
 
     const Users = new User(log);
+    const connectionsBySession = new Map();
+    const udpAddrToConnection = new Map();
+    let serverUdp;
+
+    function getUdpAddrKey(rinfo) {
+        return `${rinfo.address}:${rinfo.port}`;
+    }
+
+    function requestCryptResync(connection) {
+        if (!connection?.cryptState) {
+            return;
+        }
+
+        if (!connection.cryptState.shouldRequestResync()) {
+            return;
+        }
+
+        if (connection.lastCryptResync && Date.now() / 1000 - connection.lastCryptResync < 5) {
+            return;
+        }
+
+        connection.lastCryptResync = Math.floor(Date.now() / 1000);
+        connection.sendMessage('CryptSetup', {});
+    }
+
+    function sendVoicePacket(connection, rawPacket, fallbackRinfo) {
+        if (connection?.cryptState && connection.udpaddr) {
+            try {
+                const encrypted = connection.cryptState.encrypt(rawPacket);
+                const { address, port } = connection.udpaddr;
+                udpAddrToConnection.set(getUdpAddrKey(connection.udpaddr), connection);
+                serverUdp.send(encrypted, port, address, err => {
+                    if (err) {
+                        log.error(new Error(err));
+                    }
+                });
+                return;
+            } catch (err) {
+                log.error(new Error(err));
+            }
+        }
+
+        if (connection && typeof connection.sendMessage === 'function') {
+            connection.sendMessage('UDPTunnel', { packet: rawPacket });
+            return;
+        }
+
+        if (fallbackRinfo && serverUdp) {
+            serverUdp.send(rawPacket, fallbackRinfo.port, fallbackRinfo.address, err => {
+                if (err) {
+                    log.error(new Error(err));
+                }
+            });
+        }
+    }
+
+    function broadcastVoicePacket(rawPacket, sourceSession) {
+        const sourceChannelId = Users.sessionToChannels[sourceSession];
+        if (sourceChannelId === undefined || sourceChannelId === null) {
+            return;
+        }
+
+        const target = getVoiceTarget(rawPacket);
+        const sourceConnection = connectionsBySession.get(sourceSession);
+
+        if (target === 31) {
+            if (sourceConnection) {
+                sendVoicePacket(sourceConnection, rawPacket);
+            }
+            return;
+        }
+
+        for (const user of Object.values(Users.users)) {
+            if (!user || user.session === undefined || user.session === null) {
+                continue;
+            }
+
+            if (user.session === sourceSession) {
+                continue;
+            }
+
+            if (user.channelId !== sourceChannelId) {
+                continue;
+            }
+
+            if (user.selfDeaf === true) {
+                continue;
+            }
+
+            const targetConnection = connectionsBySession.get(user.session);
+            if (!targetConnection) {
+                continue;
+            }
+
+            sendVoicePacket(targetConnection, rawPacket);
+        }
+    }
 
     const options = {
         key: serverConfig.key,
@@ -145,6 +235,8 @@ async function startServer(server_id) {
         let uid;
         let auth = false;
         const connection = new MumbleConnection(socket, Users);
+        connection.clientCryptoModes = [];
+        connection.lastCryptResync = 0;
 
         function broadcastListener(type, message, sender_uid) {
             if (sender_uid !== undefined) {
@@ -163,21 +255,7 @@ async function startServer(server_id) {
         Users.on('broadcast', broadcastListener);
 
         function broadcastAudio(packet, source_session) {
-            const user = Users.getUser(uid);
-
-            if (user.session === source_session) {
-                return;
-            }
-
-            if (user.channelId !== Users.sessionToChannels[source_session]) {
-                return;
-            }
-
-            if (user.selfDeaf === true) {
-                return;
-            }
-
-            connection.socket.write(packet);
+            broadcastVoicePacket(packet, source_session);
         }
 
         Users.on('broadcast_audio', broadcastAudio);
@@ -189,13 +267,22 @@ async function startServer(server_id) {
         connection.on('disconnect', async () => {
             log.info('User disconnected');
 
-            if (Users.getUser(uid).session) {
-                Users.emit('broadcast', 'UserRemove', { session: Users.getUser(uid).session }, uid);
+            const user = Users.getUser(uid);
+            if (user.session) {
+                Users.emit('broadcast', 'UserRemove', { session: user.session }, uid);
+                connectionsBySession.delete(user.session);
+                if (connection.udpaddr) {
+                    udpAddrToConnection.delete(getUdpAddrKey(connection.udpaddr));
+                }
                 await Users.deleteUser(uid);
             }
 
             Users.removeListener('broadcast', broadcastListener);
             Users.removeListener('broadcast_audio', broadcastAudio);
+        });
+
+        connection.on('version', version => {
+            connection.clientCryptoModes = Array.isArray(version.cryptoModes) ? version.cryptoModes : [];
         });
 
         connection.on('textMessage', ({ channelId, message }) => {
@@ -238,7 +325,7 @@ async function startServer(server_id) {
         });
 
         let authUserState = {};
-        connection.on('userState', m => {
+        connection.on('userState', async m => {
             const user = Users.getUser(uid);
 
             const updateUserState = {
@@ -323,7 +410,7 @@ async function startServer(server_id) {
             if (auth === false) {
                 authUserState = updateUserState;
             } else {
-                Users.updateUser(uid, updateUserState);
+                await Users.updateUser(uid, updateUserState);
             }
 
             Users.emit('broadcast', 'UserState', updateUserState, uid);
@@ -333,7 +420,8 @@ async function startServer(server_id) {
             version: util.encodeVersion(1, 2, 4),
             release: `1.2.4-0.1${os.platform()}`,
             os: os.platform(),
-            osVersion: os.release()
+            osVersion: os.release(),
+            cryptoModes: CryptState.supportedModes()
         });
 
         connection.on('authenticate', async m => {
@@ -360,19 +448,21 @@ async function startServer(server_id) {
             uid = authResult.id;
 
             delete authUserState.channelId;
-            Users.updateUser(uid, authUserState);
+            await Users.updateUser(uid, authUserState);
             auth = true;
 
             log.debug(m);
 
             connection.sessionId = Users.getUser(uid).session;
-            connection.cryptSetup = createCryptSetup();
+            connectionsBySession.set(connection.sessionId, connection);
 
-            connection.sendMessage('CryptSetup', {
-                key: connection.cryptSetup.key,
-                clientNonce: connection.cryptSetup.clientNonce,
-                serverNonce: connection.cryptSetup.serverNonce
-            });
+            const negotiatedMode =
+                connection.clientCryptoModes.find(mode => CryptState.supportedModes().includes(mode)) ||
+                CryptState.supportedModes()[0];
+            connection.cryptState = new CryptState(negotiatedMode);
+            connection.cryptState.generateKey(negotiatedMode);
+
+            connection.sendMessage('CryptSetup', connection.cryptState.getCryptSetup());
 
             connection.sendMessage('CodecVersion', {
                 alpha: -2147483637,
@@ -462,51 +552,108 @@ async function startServer(server_id) {
             });
         });
 
-        connection.on('ping', ({ timestamp }) => {
+        connection.on('ping', m => {
+            const { timestamp } = m;
+            if (connection.cryptState) {
+                connection.cryptState.markRemoteStats(m);
+                connection.sendMessage('Ping', connection.cryptState.buildPingResponse(timestamp));
+                return;
+            }
+
             connection.sendMessage('Ping', { timestamp });
         });
 
         connection.on('cryptSetup', msg => {
-            if (!connection.cryptSetup) {
+            if (!connection.cryptState) {
                 return;
             }
 
-            if (msg.clientNonce && msg.clientNonce.length === 16) {
-                connection.cryptSetup.clientNonce = Buffer.from(msg.clientNonce);
-            }
-
-            if (msg.serverNonce && msg.serverNonce.length === 16) {
-                connection.cryptSetup.serverNonce = Buffer.from(msg.serverNonce);
-            }
-
-            if (!msg.clientNonce || msg.clientNonce.length === 0) {
-                connection.sendMessage('CryptSetup', {
-                    clientNonce: connection.cryptSetup.serverNonce
-                });
+            try {
+                const response = connection.cryptState.handleCryptSetup(msg);
+                if (response) {
+                    connection.sendMessage('CryptSetup', response);
+                }
+            } catch (err) {
+                log.error(new Error(err));
             }
         });
     }).listen(serverConfig.port);
 
-    const serverUdp = dgram.createSocket('udp4');
+    serverUdp = dgram.createSocket('udp4');
 
     serverUdp.on('listening', () => {
         // const address = serverUdp.address();;
     });
 
-    serverUdp.on('message', (message, { port, address }) => {
-        if (message.length !== 12) {
+    serverUdp.on('message', (message, rinfo) => {
+        if (message.length === 12) {
+            const q = BufferPack.unpack('>id', message, 0);
+
+            const buffer = BufferPack.pack('>idiii', [0x00010204, q[1], Object.keys(Users.users).length, 5, 128000]);
+
+            serverUdp.send(buffer, 0, buffer.length, rinfo.port, rinfo.address, err => {
+                if (err) {
+                    throw err;
+                }
+            });
             return;
         }
 
-        const q = BufferPack.unpack('>id', message, 0);
+        const addrKey = getUdpAddrKey(rinfo);
+        const mappedConnection = udpAddrToConnection.get(addrKey);
+        const candidates = [];
 
-        const buffer = BufferPack.pack('>idiii', [0x00010204, q[1], Object.keys(Users.users).length, 5, 128000]);
+        if (mappedConnection) {
+            candidates.push({ connection: mappedConnection, requestResync: true });
+        }
 
-        serverUdp.send(buffer, 0, buffer.length, port, address, err => {
-            if (err) {
-                throw err;
+        for (const connection of connectionsBySession.values()) {
+            if (connection === mappedConnection) {
+                continue;
             }
-        });
+
+            candidates.push({ connection, requestResync: false });
+        }
+
+        let matchedConnection = null;
+        let plain = null;
+
+        for (const { connection, requestResync } of candidates) {
+            if (!connection?.cryptState) {
+                continue;
+            }
+
+            try {
+                plain = connection.cryptState.decrypt(message);
+                matchedConnection = connection;
+                break;
+            } catch {
+                if (requestResync) {
+                    requestCryptResync(connection);
+                }
+            }
+        }
+
+        if (!matchedConnection || !plain) {
+            return;
+        }
+
+        matchedConnection.udpaddr = rinfo;
+        udpAddrToConnection.set(addrKey, matchedConnection);
+
+        const kind = getVoiceKind(plain);
+
+        if (kind === 1) {
+            sendVoicePacket(matchedConnection, plain, rinfo);
+            return;
+        }
+
+        const voicePacket = rebuildVoicePacket(matchedConnection.sessionId, plain);
+        if (!voicePacket) {
+            return;
+        }
+
+        broadcastVoicePacket(voicePacket, matchedConnection.sessionId);
     });
 
     serverUdp.bind(serverConfig.port);
