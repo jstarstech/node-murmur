@@ -291,6 +291,12 @@ export default class CryptState {
         this.remoteLate = 0;
         this.remoteLost = 0;
         this.remoteResync = 0;
+        this.remoteUdpPackets = 0;
+        this.remoteTcpPackets = 0;
+        this.remoteUdpPingAvg = 0;
+        this.remoteUdpPingVar = 0;
+        this.remoteTcpPingAvg = 0;
+        this.remoteTcpPingVar = 0;
         this.decryptHistory = Buffer.alloc(IV_HISTORY_SIZE);
     }
 
@@ -373,6 +379,24 @@ export default class CryptState {
         if (ping.resync !== undefined && ping.resync !== null) {
             this.remoteResync = ping.resync;
         }
+        if (ping.udpPackets !== undefined && ping.udpPackets !== null) {
+            this.remoteUdpPackets = ping.udpPackets;
+        }
+        if (ping.tcpPackets !== undefined && ping.tcpPackets !== null) {
+            this.remoteTcpPackets = ping.tcpPackets;
+        }
+        if (ping.udpPingAvg !== undefined && ping.udpPingAvg !== null) {
+            this.remoteUdpPingAvg = ping.udpPingAvg;
+        }
+        if (ping.udpPingVar !== undefined && ping.udpPingVar !== null) {
+            this.remoteUdpPingVar = ping.udpPingVar;
+        }
+        if (ping.tcpPingAvg !== undefined && ping.tcpPingAvg !== null) {
+            this.remoteTcpPingAvg = ping.tcpPingAvg;
+        }
+        if (ping.tcpPingVar !== undefined && ping.tcpPingVar !== null) {
+            this.remoteTcpPingVar = ping.tcpPingVar;
+        }
     }
 
     buildPingResponse(timestamp) {
@@ -381,7 +405,13 @@ export default class CryptState {
             good: this.good,
             late: this.late,
             lost: this.lost,
-            resync: this.resync
+            resync: this.resync,
+            udpPackets: this.remoteUdpPackets,
+            tcpPackets: this.remoteTcpPackets,
+            udpPingAvg: this.remoteUdpPingAvg,
+            udpPingVar: this.remoteUdpPingVar,
+            tcpPingAvg: this.remoteTcpPingAvg,
+            tcpPingVar: this.remoteTcpPingVar
         };
     }
 

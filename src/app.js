@@ -549,7 +549,19 @@ async function startServer(server_id) {
                 return;
             }
 
-            connection.sendMessage('Ping', { timestamp });
+            connection.sendMessage('Ping', {
+                timestamp,
+                good: m.good,
+                late: m.late,
+                lost: m.lost,
+                resync: m.resync,
+                udpPackets: m.udpPackets,
+                tcpPackets: m.tcpPackets,
+                udpPingAvg: m.udpPingAvg,
+                udpPingVar: m.udpPingVar,
+                tcpPingAvg: m.tcpPingAvg,
+                tcpPingVar: m.tcpPingVar
+            });
         });
 
         connection.on('cryptSetup', msg => {
