@@ -1362,10 +1362,6 @@ async function startServer(server_id) {
                     );
                 }
 
-                if (Array.isArray(m.linksAdd) && m.linksAdd.length > 0) {
-                    await syncChannelLinks(1, nextChannelId, m.linksAdd, transaction);
-                }
-
                 const created = {
                     channel_id: nextChannelId,
                     parent_id: targetParentId,
