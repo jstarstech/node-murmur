@@ -9,6 +9,7 @@ import log4js from 'log4js';
 import * as util from './lib/util.js';
 import MumbleConnection from './lib/MumbleConnection.js';
 import User from './lib/User.js';
+import { buildAclResponse, canEnterChannel, computePermissions, loadAclState, PERMISSIONS } from './lib/Acl.js';
 import Config from './models/config.js';
 import Channels from './models/channels.js';
 import ChannelInfo from './models/channel_info.js';
@@ -119,6 +120,7 @@ async function startServer(server_id) {
     }
 
     const channels = await getChannels(server_id);
+    const aclState = await loadAclState(server_id);
 
     const Users = new User(log);
 
@@ -213,30 +215,25 @@ async function startServer(server_id) {
         });
 
         connection.on('permissionQuery', m => {
-            const permissions = util.writePermissions({
-                Enter: 0x04,
-                Traverse: 0x02
-                // All: 0xf07ff
-            });
+            const requestedChannelId = Number(m.channelId || 0);
+            const user = Users.getUser(uid);
+            if (!user || user.session === undefined) {
+                return;
+            }
+
+            const permissions = computePermissions(requestedChannelId, user, channels, aclState);
 
             connection.sendMessage('PermissionQuery', {
-                channelId: m.channelId,
+                channelId: requestedChannelId,
                 permissions,
                 flush: false
             });
         });
 
         connection.on('acl', m => {
-            console.log(m);
-
             if (m.query) {
-                connection.sendMessage('ACL', {
-                    groups: [],
-                    acls: [],
-                    channelId: 59,
-                    inherit_acls: true,
-                    query: false
-                });
+                const requestedChannelId = Number(m.channelId || 0);
+                connection.sendMessage('ACL', buildAclResponse(requestedChannelId, channels, aclState));
             }
         });
 
@@ -290,6 +287,37 @@ async function startServer(server_id) {
 
             if (Object.prototype.hasOwnProperty.call(m, 'pluginContext') && m.pluginContext !== user.pluginContext) {
                 updateUserState.pluginContext = m.pluginContext;
+            }
+
+            if (
+                auth === true &&
+                Object.prototype.hasOwnProperty.call(updateUserState, 'channelId') &&
+                updateUserState.channelId !== user.channelId
+            ) {
+                const requestedChannelId = Number(updateUserState.channelId);
+                const destinationChannel = channels[requestedChannelId];
+
+                if (!destinationChannel) {
+                    connection.sendMessage('PermissionDenied', {
+                        type: 1,
+                        permission: PERMISSIONS.Enter,
+                        channelId: requestedChannelId,
+                        session: user.session,
+                        reason: 'Unknown channel'
+                    });
+                    return;
+                }
+
+                if (!canEnterChannel(requestedChannelId, user, channels, aclState)) {
+                    connection.sendMessage('PermissionDenied', {
+                        type: 1,
+                        permission: PERMISSIONS.Enter,
+                        channelId: requestedChannelId,
+                        session: user.session,
+                        reason: 'Permission denied'
+                    });
+                    return;
+                }
             }
 
             if (auth === false) {
