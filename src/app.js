@@ -526,12 +526,6 @@ async function startServer(server_id) {
                 imageMessageLength: 1131072
             });
 
-            connection.sendMessage('SuggestConfig', {
-                version: 66052,
-                positional: null,
-                pushToTalk: null
-            });
-
             ready = true;
         });
 
