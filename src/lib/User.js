@@ -152,6 +152,26 @@ class User extends EventEmitter {
 
         this.sessionToChannels[this.users[id].session] = this.users[id].channelId;
 
+        if (
+            Object.prototype.hasOwnProperty.call(user_data, 'channelId') &&
+            user.userId !== null &&
+            user.userId !== undefined
+        ) {
+            Users.update(
+                {
+                    lastchannel: user.channelId
+                },
+                {
+                    where: {
+                        server_id: 1,
+                        user_id: user.userId
+                    }
+                }
+            ).catch(err => {
+                this.log.error(new Error(err));
+            });
+        }
+
         return user;
     }
 
