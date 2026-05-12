@@ -74,6 +74,7 @@ function sendChannelState(connection, channel) {
     const description = channel.description || '';
     const descriptionBuffer = Buffer.from(description);
     const shouldSendHash = descriptionBuffer.length >= 128 && (connection.clientVersion || 0) >= 0x10202;
+    const position = Number.isFinite(Number(channel.position)) ? Number(channel.position) : 0;
 
     connection.sendMessage('ChannelState', {
         channelId: channel.channel_id,
@@ -82,11 +83,107 @@ function sendChannelState(connection, channel) {
         links: [],
         linksAdd: [],
         linksRemove: [],
-        temporary: false,
-        position: channel.position || '0',
+        temporary: Boolean(channel.temporary),
+        position,
         description: shouldSendHash ? '' : description,
         descriptionHash: shouldSendHash ? crypto.createHash('sha1').update(descriptionBuffer).digest() : null
     });
+}
+
+function sendChannelTree(connection, channels, channel) {
+    if (!channel) {
+        return;
+    }
+
+    sendChannelState(connection, channel);
+
+    const children = Object.values(channels)
+        .filter(child => child.parent_id === channel.channel_id)
+        .sort((left, right) => {
+            const leftPos = Number.isFinite(Number(left.position)) ? Number(left.position) : 0;
+            const rightPos = Number.isFinite(Number(right.position)) ? Number(right.position) : 0;
+            if (leftPos !== rightPos) {
+                return leftPos - rightPos;
+            }
+
+            return left.channel_id - right.channel_id;
+        });
+
+    for (const child of children) {
+        sendChannelTree(connection, channels, child);
+    }
+}
+
+function buildUserStatePayload(user, clientVersion, { includeBlobs = false } = {}) {
+    const payload = {
+        session: user.session,
+        name: user.name,
+        channelId: user.channelId
+    };
+
+    if (user.userId !== null && user.userId !== undefined) {
+        payload.userId = user.userId;
+    }
+
+    if (user.hash) {
+        payload.hash = user.hash;
+    }
+
+    if (user.deaf) {
+        payload.deaf = user.deaf;
+    }
+
+    if (user.mute) {
+        payload.mute = user.mute;
+    }
+
+    if (user.recording) {
+        payload.recording = user.recording;
+    }
+
+    if (user.suppress) {
+        payload.suppress = user.suppress;
+    }
+
+    if (user.selfMute) {
+        payload.selfMute = user.selfMute;
+    }
+
+    if (user.selfDeaf) {
+        payload.selfDeaf = user.selfDeaf;
+    }
+
+    if (user.prioritySpeaker) {
+        payload.prioritySpeaker = user.prioritySpeaker;
+    }
+
+    if (user.pluginIdentity) {
+        payload.pluginIdentity = user.pluginIdentity;
+    }
+
+    if (user.pluginContext && user.pluginContext.length > 0) {
+        payload.pluginContext = user.pluginContext;
+    }
+
+    const supportsBlobs = includeBlobs || (clientVersion || 0) < 0x10203;
+
+    if (user.texture && user.texture.length > 0) {
+        if (supportsBlobs) {
+            payload.texture = user.texture;
+        } else if (user.textureHash && user.textureHash.length > 0) {
+            payload.textureHash = user.textureHash;
+        }
+    }
+
+    if (user.comment) {
+        if (supportsBlobs) {
+            payload.comment = user.comment;
+        } else if (user.commentHash && user.commentHash.length > 0) {
+            payload.commentHash = user.commentHash;
+        }
+    }
+
+    return payload;
 }
 
 async function startServer(server_id) {
@@ -261,6 +358,14 @@ async function startServer(server_id) {
             }
 
             if (type === 'TextMessage' && !message.channelId.includes(Users.getUser(uid).channelId)) {
+                return;
+            }
+
+            if (type === 'UserState') {
+                connection.sendMessage(
+                    type,
+                    buildUserStatePayload(message, connection.clientVersion, { includeBlobs: false })
+                );
                 return;
             }
 
@@ -544,24 +649,8 @@ async function startServer(server_id) {
 
             connection.sendMessage('CryptSetup', connection.cryptState.getCryptSetup());
 
-            connection.sendMessage('CodecVersion', {
-                alpha: -2147483637,
-                beta: 0,
-                preferAlpha: true,
-                opus: true
-            });
-
             const rootChannel = channels[0];
-            sendChannelState(connection, rootChannel);
-
-            _.each(
-                Object.values(channels)
-                    .filter(channel => channel.channel_id !== 0)
-                    .sort((left, right) => left.channel_id - right.channel_id),
-                channel => {
-                    sendChannelState(connection, channel);
-                }
-            );
+            sendChannelTree(connection, channels, rootChannel);
 
             Users.emit('broadcast', 'UserState', Users.getUser(uid), uid);
 
@@ -575,18 +664,17 @@ async function startServer(server_id) {
                     return;
                 }
 
-                connection.sendMessage('UserState', item);
+                connection.sendMessage(
+                    'UserState',
+                    buildUserStatePayload(item, targetConnection.clientVersion, { includeBlobs: false })
+                );
             });
 
             connection.sendMessage('ServerSync', {
                 session: Users.getUser(uid).session,
                 maxBandwidth: serverConfig.bandwidth,
                 welcomeText: serverConfig.welcometext,
-                permissions: {
-                    low: 134217738,
-                    high: 0,
-                    unsigned: true
-                }
+                permissions: null
             });
 
             connection.sendMessage('ServerConfig', {

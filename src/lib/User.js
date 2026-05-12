@@ -1,4 +1,5 @@
 import { EventEmitter } from 'events';
+import crypto from 'crypto';
 import _ from 'underscore';
 import Users from '../models/users.js';
 import UserInfo from '../models/user_info.js';
@@ -35,6 +36,10 @@ class User extends EventEmitter {
         this.log = log;
         this.options = options || {};
         this.id = 100;
+    }
+
+    isSha1Like(value) {
+        return typeof value === 'string' && /^[0-9a-f]{40}$/i.test(value);
     }
 
     async _persistLastChannel(user) {
@@ -174,13 +179,20 @@ class User extends EventEmitter {
             });
 
             user_model.userId = matchedUser.user_id;
-            // user_model.textureHash = user.texture;
             user_model.channelId = matchedUser.lastchannel || 0;
             rememberedChannel = matchedUser.lastchannel;
 
+            if (matchedUser.texture && matchedUser.texture.length > 0) {
+                user_model.texture = Buffer.from(matchedUser.texture);
+                user_model.textureHash = crypto.createHash('sha1').update(user_model.texture).digest();
+            }
+
             rows.forEach(({ key, value }) => {
                 if (key === 2) {
-                    user_model.comment = value;
+                    if (value && value.length > 0 && !this.isSha1Like(value)) {
+                        user_model.comment = value;
+                        user_model.commentHash = crypto.createHash('sha1').update(Buffer.from(value)).digest();
+                    }
                 }
                 if (key === 3 && user_data.hash) {
                     user_model.hash = value;
