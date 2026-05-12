@@ -229,7 +229,7 @@ async function startServer(server_id) {
     tls.createServer(options, socket => {
         socket.setKeepAlive(true, 10000);
         socket.setTimeout(10000);
-        socket.setNoDelay(false);
+        socket.setNoDelay(true);
 
         log.info('TLS Client authorized:', socket.authorized);
 
