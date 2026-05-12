@@ -7,6 +7,8 @@
   "scripts": {
     "start": "node app.js",
     "dev": "nodemon --config nodemon.json app.js",
+    "lint": "eslint .",
+    "lint:fix": "eslint . --fix",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
   "author": "",
@@ -27,10 +29,10 @@
     "node": ">= 22"
   },
   "devDependencies": {
-    "eslint": "^8.39.0",
-    "eslint-config-prettier": "^8.8.0",
-    "eslint-plugin-import": "^2.27.5",
-    "eslint-plugin-prettier": "^4.2.1",
+    "@eslint/js": "^10.0.1",
+    "eslint": "^10.3.0",
+    "eslint-config-prettier": "^10.1.8",
+    "eslint-plugin-prettier": "^5.5.5",
     "prettier": "3.8.3"
   }
 }
