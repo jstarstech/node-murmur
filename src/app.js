@@ -244,6 +244,144 @@ function buildUserStatePayload(user, clientVersion, { includeBlobs = false } = {
     return payload;
 }
 
+function ipToBuffer(address) {
+    if (typeof address !== 'string' || address.length === 0) {
+        return Buffer.alloc(0);
+    }
+
+    const normalized = address.split('%')[0];
+
+    if (normalized.startsWith('::ffff:')) {
+        const ipv4 = normalized.slice('::ffff:'.length);
+        if (net.isIP(ipv4) === 4) {
+            const octets = ipv4.split('.').map(part => Number(part));
+            if (octets.length === 4 && octets.every(value => Number.isInteger(value) && value >= 0 && value <= 255)) {
+                return Buffer.from(octets);
+            }
+        }
+    }
+
+    const family = net.isIP(normalized);
+    if (family === 4) {
+        const octets = normalized.split('.').map(part => Number(part));
+        if (octets.length !== 4 || octets.some(value => !Number.isInteger(value) || value < 0 || value > 255)) {
+            return Buffer.alloc(0);
+        }
+
+        return Buffer.from(octets);
+    }
+
+    if (family === 6) {
+        return ipv6StringToBuffer(address);
+    }
+
+    return Buffer.alloc(0);
+}
+
+function collectPeerCertificates(connection) {
+    const tlsSocket = connection?.socket?.socket;
+    if (!tlsSocket || typeof tlsSocket.getPeerCertificate !== 'function') {
+        return [];
+    }
+
+    let certificate;
+    try {
+        certificate = tlsSocket.getPeerCertificate(true);
+    } catch {
+        return [];
+    }
+
+    const certificates = [];
+    const seen = new Set();
+
+    const pushChain = item => {
+        let current = item;
+        while (current && !seen.has(current)) {
+            seen.add(current);
+            if (current.raw) {
+                certificates.push(Buffer.from(current.raw));
+            }
+
+            if (!current.issuerCertificate || current.issuerCertificate === current) {
+                break;
+            }
+
+            current = current.issuerCertificate;
+        }
+    };
+
+    if (Array.isArray(certificate)) {
+        for (const item of certificate) {
+            pushChain(item);
+        }
+    } else {
+        pushChain(certificate);
+    }
+
+    return certificates.reverse();
+}
+
+function buildUserStatsPayload(
+    targetUser,
+    targetConnection,
+    { statsOnly = false, extended = false, local = false } = {}
+) {
+    const payload = {
+        session: targetUser.session,
+        statsOnly: Boolean(statsOnly)
+    };
+
+    if (extended) {
+        const certificates = collectPeerCertificates(targetConnection);
+        if (certificates.length > 0) {
+            payload.certificates = certificates;
+        }
+
+        payload.strongCertificate = Boolean(targetConnection?.socket?.socket?.authorized);
+    }
+
+    if (local) {
+        const cryptState = targetConnection?.cryptState;
+        payload.fromClient = {
+            good: Number(cryptState?.good || 0),
+            late: Number(cryptState?.late || 0),
+            lost: Number(cryptState?.lost || 0),
+            resync: Number(cryptState?.resync || 0)
+        };
+
+        payload.fromServer = {
+            good: Number(cryptState?.remoteGood || 0),
+            late: Number(cryptState?.remoteLate || 0),
+            lost: Number(cryptState?.remoteLost || 0),
+            resync: Number(cryptState?.remoteResync || 0)
+        };
+    }
+
+    const cryptState = targetConnection?.cryptState;
+    payload.udpPackets = Number(cryptState?.remoteUdpPackets || 0);
+    payload.tcpPackets = Number(cryptState?.remoteTcpPackets || 0);
+    payload.udpPingAvg = Number(cryptState?.remoteUdpPingAvg || 0);
+    payload.udpPingVar = Number(cryptState?.remoteUdpPingVar || 0);
+    payload.tcpPingAvg = Number(cryptState?.remoteTcpPingAvg || 0);
+    payload.tcpPingVar = Number(cryptState?.remoteTcpPingVar || 0);
+
+    if (!statsOnly) {
+        payload.version = {
+            version: Number(targetConnection?.clientVersion || 0),
+            release: targetConnection?.clientRelease || undefined,
+            os: targetConnection?.clientOS || undefined,
+            osVersion: targetConnection?.clientOSVersion || undefined
+        };
+        payload.celtVersions = Array.isArray(targetConnection?.clientCeltVersions)
+            ? targetConnection.clientCeltVersions.slice()
+            : [];
+        payload.opus = Boolean(targetConnection?.clientOpus);
+        payload.address = ipToBuffer(targetConnection?.socket?.socket?.remoteAddress || '');
+    }
+
+    return payload;
+}
+
 async function getRegisteredUsers(serverId) {
     return RegisteredUsers.findAll({
         where: {
@@ -1306,9 +1444,20 @@ async function startServer(server_id) {
         let auth = false;
         let ready = false;
         const connection = new MumbleConnection(socket, Users);
+        connection.connectedAt = Date.now();
+        connection.lastActivityAt = connection.connectedAt;
         connection.clientCryptoModes = [];
+        connection.clientCeltVersions = [];
+        connection.clientOpus = false;
+        connection.clientRelease = null;
+        connection.clientOS = null;
+        connection.clientOSVersion = null;
         connection.lastCryptResync = 0;
         connection.state = 'connected';
+
+        connection.on('protocol-in', () => {
+            connection.lastActivityAt = Date.now();
+        });
 
         function broadcastListener(type, message, sender_uid) {
             if (!['authenticated', 'ready'].includes(connection.state)) {
@@ -1380,6 +1529,9 @@ async function startServer(server_id) {
             connection.state = 'version-received';
             connection.clientCryptoModes = Array.isArray(version.cryptoModes) ? version.cryptoModes : [];
             connection.clientVersion = version.version || 0;
+            connection.clientRelease = version.release || null;
+            connection.clientOS = version.os || null;
+            connection.clientOSVersion = version.osVersion || null;
         });
 
         connection.on('textMessage', ({ channelId, message }) => {
@@ -1690,6 +1842,53 @@ async function startServer(server_id) {
             }
         });
 
+        connection.on('userStats', async m => {
+            if (!['authenticated', 'ready'].includes(connection.state)) {
+                return;
+            }
+
+            const requester = Users.getUser(uid);
+            if (!requester || requester.session === undefined) {
+                return;
+            }
+
+            const targetSession = Number(m.session || 0);
+            if (!Number.isFinite(targetSession) || targetSession === 0) {
+                return;
+            }
+
+            const targetConnection = connectionsBySession.get(targetSession);
+            const targetUser = findUserBySession(targetSession);
+            if (!targetConnection || !targetUser || targetUser.session === undefined) {
+                return;
+            }
+
+            const rootPermissions = computePermissions(0, requester, channels, aclState);
+            const extended =
+                requester.session === targetUser.session ||
+                (rootPermissions & PERMISSIONS.Register) === PERMISSIONS.Register;
+
+            if (!extended && !canEnterChannel(targetUser.channelId, requester, channels, aclState)) {
+                connection.sendMessage('PermissionDenied', {
+                    type: 1,
+                    permission: PERMISSIONS.Enter,
+                    channelId: targetUser.channelId || 0,
+                    session: requester.session,
+                    reason: 'Permission denied'
+                });
+                return;
+            }
+
+            connection.sendMessage(
+                'UserStats',
+                buildUserStatsPayload(targetUser, targetConnection, {
+                    statsOnly: m.statsOnly === true,
+                    extended,
+                    local: extended || targetUser.channelId === requester.channelId
+                })
+            );
+        });
+
         let authUserState = {};
         connection.on('userState', async m => {
             const user = Users.getUser(uid);
@@ -1863,6 +2062,9 @@ async function startServer(server_id) {
                 hash: certificateHash,
                 channelId: serverConfig.defaultchannel
             });
+
+            connection.clientCeltVersions = Array.isArray(m.celtVersions) ? m.celtVersions.slice() : [];
+            connection.clientOpus = Boolean(m.opus);
 
             if (authResult.reject) {
                 connection.sendMessage('Reject', authResult.reject);
@@ -2152,10 +2354,12 @@ async function startServer(server_id) {
         const kind = getVoiceKind(plain);
 
         if (kind === 1) {
+            matchedConnection.lastActivityAt = Date.now();
             sendVoicePacket(matchedConnection, plain, rinfo);
             return;
         }
 
+        matchedConnection.lastActivityAt = Date.now();
         const voicePacket = rebuildVoicePacket(matchedConnection.sessionId, plain);
         if (!voicePacket) {
             return;
