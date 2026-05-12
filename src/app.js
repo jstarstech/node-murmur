@@ -221,6 +221,7 @@ function sendChannelTree(connection, channels, channel) {
 function buildUserStatePayload(user, clientVersion, { includeBlobs = false } = {}) {
     const payload = {
         session: user.session,
+        actor: user.actor,
         name: user.name,
         channelId: user.channelId
     };
