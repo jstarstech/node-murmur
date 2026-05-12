@@ -542,6 +542,14 @@ export function canEnterChannel(channelId, user, channels, aclState) {
     return (computePermissions(channelId, user, channels, aclState) & PERMISSIONS.Enter) === PERMISSIONS.Enter;
 }
 
+export function isGroupMember(rawName, user, aclChannelId, currentChannelId, channels, aclState) {
+    if (typeof rawName !== 'string' || rawName.length === 0) {
+        return false;
+    }
+
+    return groupMatches(rawName, user, aclChannelId, currentChannelId, channels, aclState);
+}
+
 export function buildAclResponse(channelId, channels, aclState) {
     const { reply } = collectAclView(channelId, channels, aclState);
     return {

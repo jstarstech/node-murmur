@@ -14,6 +14,7 @@ import {
     collectAclUserIds,
     computePermissions,
     loadAclState,
+    isGroupMember,
     PERMISSIONS,
     saveAclState
 } from './lib/Acl.js';
@@ -380,6 +381,171 @@ function buildUserStatsPayload(
     }
 
     return payload;
+}
+
+function collectLinkedChannelIds(channelId, channels) {
+    const seen = new Set();
+    const stack = [Number(channelId)];
+
+    while (stack.length > 0) {
+        const currentId = stack.pop();
+        const currentChannel = channels[Number(currentId)];
+
+        if (!currentChannel || !(currentChannel.links instanceof Set)) {
+            continue;
+        }
+
+        for (const linkedId of currentChannel.links) {
+            const nextId = Number(linkedId);
+            if (!Number.isFinite(nextId) || seen.has(nextId)) {
+                continue;
+            }
+
+            seen.add(nextId);
+            stack.push(nextId);
+        }
+    }
+
+    return seen;
+}
+
+function collectSubchannelIds(channelId, channels) {
+    const seen = new Set();
+    const stack = [Number(channelId)];
+
+    while (stack.length > 0) {
+        const currentId = stack.pop();
+
+        for (const channel of Object.values(channels)) {
+            if (Number(channel.parent_id) !== Number(currentId)) {
+                continue;
+            }
+
+            const childId = Number(channel.channel_id);
+            if (!Number.isFinite(childId) || seen.has(childId)) {
+                continue;
+            }
+
+            seen.add(childId);
+            stack.push(childId);
+        }
+    }
+
+    return seen;
+}
+
+function collectVoiceTargetChannels(spec, channels) {
+    const channelId = Number(spec.id);
+    const channel = channels[channelId];
+
+    if (!channel) {
+        return new Set();
+    }
+
+    const result = new Set();
+
+    if (!spec.links) {
+        result.add(channelId);
+    } else {
+        for (const linkedId of collectLinkedChannelIds(channelId, channels)) {
+            result.add(linkedId);
+        }
+    }
+
+    if (spec.subChannels) {
+        for (const childId of collectSubchannelIds(channelId, channels)) {
+            result.add(childId);
+        }
+    }
+
+    return result;
+}
+
+function collectVoiceTargetRecipients(
+    sourceSession,
+    sourceUser,
+    targetDefinition,
+    channels,
+    aclState,
+    Users,
+    connectionsBySession
+) {
+    const directRecipients = new Map();
+    const channelRecipients = new Map();
+
+    for (const spec of targetDefinition.channels) {
+        const channelIds = collectVoiceTargetChannels(spec, channels);
+        if (channelIds.size === 0) {
+            continue;
+        }
+
+        const onlyGroup = typeof spec.onlyGroup === 'string' && spec.onlyGroup.length > 0 ? spec.onlyGroup : '';
+
+        for (const channelId of channelIds) {
+            const targetChannel = channels[Number(channelId)];
+            if (!targetChannel) {
+                continue;
+            }
+
+            const whisperPermissions = computePermissions(Number(channelId), sourceUser, channels, aclState);
+            if ((whisperPermissions & PERMISSIONS.Whisper) !== PERMISSIONS.Whisper) {
+                continue;
+            }
+
+            for (const user of Object.values(Users.users)) {
+                if (!user || user.session === undefined || user.session === null) {
+                    continue;
+                }
+
+                if (user.session === sourceSession) {
+                    continue;
+                }
+
+                if (Number(user.channelId) !== Number(channelId)) {
+                    continue;
+                }
+
+                if (user.selfDeaf === true) {
+                    continue;
+                }
+
+                if (
+                    onlyGroup &&
+                    !isGroupMember(onlyGroup, user, Number(channelId), Number(channelId), channels, aclState)
+                ) {
+                    continue;
+                }
+
+                const targetConnection = connectionsBySession.get(user.session);
+                if (!targetConnection) {
+                    continue;
+                }
+
+                channelRecipients.set(user.session, targetConnection);
+            }
+        }
+    }
+
+    for (const session of targetDefinition.sessions) {
+        const targetSession = Number(session);
+        if (!Number.isFinite(targetSession) || targetSession === sourceSession) {
+            continue;
+        }
+
+        const targetConnection = connectionsBySession.get(targetSession);
+        if (!targetConnection) {
+            continue;
+        }
+
+        if (!channelRecipients.has(targetSession)) {
+            directRecipients.set(targetSession, targetConnection);
+        }
+    }
+
+    channelRecipients.delete(sourceSession);
+    directRecipients.delete(sourceSession);
+
+    return { directRecipients, channelRecipients };
 }
 
 async function getRegisteredUsers(serverId) {
@@ -1388,11 +1554,47 @@ async function startServer(server_id) {
 
         const target = getVoiceTarget(rawPacket);
         const sourceConnection = connectionsBySession.get(sourceSession);
+        const sourceUser = findUserBySession(sourceSession);
+
+        if (!sourceConnection || !sourceUser) {
+            return;
+        }
 
         if (target === 31) {
             if (sourceConnection) {
                 sendVoicePacket(sourceConnection, rawPacket);
             }
+            return;
+        }
+
+        if (target > 0 && target < 31) {
+            const targetDefinition = sourceConnection.voiceTargets?.get(target);
+            if (!targetDefinition) {
+                return;
+            }
+
+            const { directRecipients, channelRecipients } = collectVoiceTargetRecipients(
+                sourceSession,
+                sourceUser,
+                targetDefinition,
+                channels,
+                aclState,
+                Users,
+                connectionsBySession
+            );
+
+            for (const recipient of channelRecipients.values()) {
+                sendVoicePacket(recipient, rawPacket);
+            }
+
+            for (const [session, recipient] of directRecipients.entries()) {
+                if (channelRecipients.has(session)) {
+                    continue;
+                }
+
+                sendVoicePacket(recipient, rawPacket);
+            }
+
             return;
         }
 
@@ -1446,6 +1648,7 @@ async function startServer(server_id) {
         const connection = new MumbleConnection(socket, Users);
         connection.connectedAt = Date.now();
         connection.lastActivityAt = connection.connectedAt;
+        connection.voiceTargets = new Map();
         connection.clientCryptoModes = [];
         connection.clientCeltVersions = [];
         connection.clientOpus = false;
@@ -1519,6 +1722,10 @@ async function startServer(server_id) {
                     udpAddrToConnection.delete(getUdpAddrKey(connection.udpaddr));
                 }
                 await Users.deleteUser(uid);
+            }
+
+            if (connection.voiceTargets) {
+                connection.voiceTargets.clear();
             }
 
             Users.removeListener('broadcast', broadcastListener);
@@ -1727,6 +1934,52 @@ async function startServer(server_id) {
                     );
                 }
             }
+        });
+
+        connection.on('voiceTarget', m => {
+            const targetId = Number(m.id || 0);
+            if (!Number.isFinite(targetId) || targetId < 1 || targetId >= 31) {
+                return;
+            }
+
+            if (!Array.isArray(m.targets) || m.targets.length === 0) {
+                connection.voiceTargets.delete(targetId);
+                return;
+            }
+
+            const targetDefinition = {
+                sessions: new Set(),
+                channels: []
+            };
+
+            for (const target of m.targets) {
+                if (Array.isArray(target.session)) {
+                    for (const session of target.session) {
+                        const sessionId = Number(session);
+                        if (Number.isFinite(sessionId) && sessionId > 0) {
+                            targetDefinition.sessions.add(sessionId);
+                        }
+                    }
+                }
+
+                if (target.channelId === undefined || target.channelId === null) {
+                    continue;
+                }
+
+                targetDefinition.channels.push({
+                    id: Number(target.channelId),
+                    subChannels: Boolean(target.children),
+                    links: Boolean(target.links),
+                    onlyGroup: typeof target.group === 'string' && target.group.length > 0 ? target.group : ''
+                });
+            }
+
+            if (targetDefinition.sessions.size === 0 && targetDefinition.channels.length === 0) {
+                connection.voiceTargets.delete(targetId);
+                return;
+            }
+
+            connection.voiceTargets.set(targetId, targetDefinition);
         });
 
         connection.on('userRemove', async m => {
