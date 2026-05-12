@@ -12,7 +12,7 @@ export function toVarint(i) {
     if (i < 0) {
         i = ~i;
         if (i <= 0x3) {
-            return new Buffer([0xfc | i]);
+            return Buffer.from([0xfc | i]);
         }
 
         arr.push(0xf8);
@@ -43,7 +43,7 @@ export function toVarint(i) {
     }
 
     return {
-        value: new Buffer(arr),
+        value: Buffer.from(arr),
         length: arr.length
     };
 }
@@ -245,7 +245,7 @@ export function applyGain(frame, gain) {
  * @param {Number} channels - Number of channels.
  */
 export function downmixChannels(frame, channels) {
-    let monoFrame = new Buffer(frame.length / 2);
+    let monoFrame = Buffer.alloc(frame.length / 2);
     let writeOffset = 0;
 
     for (let i = 0; i < frame.length; ) {
@@ -278,7 +278,7 @@ export function downmixChannels(frame, channels) {
  * @param {Number} targetRate - Target sample rate
  */
 export function resample(frame, sourceRate, targetRate) {
-    let targetFrame = new Buffer((frame.length * targetRate) / sourceRate);
+    let targetFrame = Buffer.alloc((frame.length * targetRate) / sourceRate);
 
     for (let t = 0; t < targetFrame.length / 2; t++) {
         let targetDuration = t / targetRate;
@@ -311,7 +311,7 @@ export function rescaleToUInt16LE(frame, sourceDepth, sourceUnsigned, sourceBE) 
         throw new Error(`unsupported source depth ${sourceDepth}`);
     }
 
-    let targetFrame = new Buffer((frame.length * 16) / sourceDepth);
+    let targetFrame = Buffer.alloc((frame.length * 16) / sourceDepth);
 
     let readFunc =
         frame[

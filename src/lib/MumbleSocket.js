@@ -97,7 +97,7 @@ class MumbleSocket {
         }
 
         // Allocate the buffer for the reader.
-        let buffer = new Buffer(reader.length);
+        let buffer = Buffer.alloc(reader.length);
         let written = 0;
 
         // Gather the buffer contents from the queued data fragments.
