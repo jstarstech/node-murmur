@@ -19,6 +19,10 @@ export const PERMISSIONS = Object.freeze({
     SelfRegister: 0x80000
 });
 
+export const ALL_PERMISSIONS = Object.freeze(
+    Object.values(PERMISSIONS).reduce((permissions, permission) => permissions | permission, 0)
+);
+
 export const DEFAULT_PERMISSIONS =
     PERMISSIONS.Traverse | PERMISSIONS.Enter | PERMISSIONS.Speak | PERMISSIONS.Whisper | PERMISSIONS.TextMessage;
 
@@ -285,6 +289,10 @@ export async function loadAclState(serverId) {
 }
 
 export function computePermissions(channelId, user, channels, aclState) {
+    if (user?.userId === 0) {
+        return ALL_PERMISSIONS;
+    }
+
     const path = getChannelPath(channelId, channels);
     let granted = DEFAULT_PERMISSIONS;
 

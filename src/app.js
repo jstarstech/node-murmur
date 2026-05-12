@@ -283,6 +283,31 @@ async function sendRegisteredUsers(connection, serverId, query = {}) {
     connection.sendMessage('UserList', { users });
 }
 
+async function getBans(serverId) {
+    const [rows] = await sequelize.query(
+        `SELECT base, mask, name, hash, reason, start, duration
+         FROM bans
+         WHERE server_id = ${Number(serverId)}
+         ORDER BY start DESC`
+    );
+
+    return rows;
+}
+
+function sendBanList(connection, bans) {
+    connection.sendMessage('BanList', {
+        bans: bans.map(banEntry => ({
+            address: banEntry.base || Buffer.alloc(0),
+            mask: Number(banEntry.mask || 0),
+            name: banEntry.name || undefined,
+            hash: banEntry.hash || undefined,
+            reason: banEntry.reason || undefined,
+            start: banEntry.start ? new Date(banEntry.start).toISOString() : undefined,
+            duration: Number(banEntry.duration || 0)
+        }))
+    });
+}
+
 async function startServer(server_id) {
     const serverConfig = {};
 
@@ -620,6 +645,51 @@ async function startServer(server_id) {
             }
 
             await sendRegisteredUsers(connection, 1, {});
+        });
+
+        connection.on('banList', async m => {
+            if (!['authenticated', 'ready'].includes(connection.state)) {
+                return;
+            }
+
+            const user = Users.getUser(uid);
+            const rootPermissions = computePermissions(0, user, channels, aclState);
+            if ((rootPermissions & PERMISSIONS.Ban) !== PERMISSIONS.Ban) {
+                connection.sendMessage('PermissionDenied', {
+                    type: 1,
+                    permission: PERMISSIONS.Ban,
+                    channelId: 0,
+                    session: user.session,
+                    reason: 'Permission denied'
+                });
+                return;
+            }
+
+            if (m.query) {
+                const bans = await getBans(1);
+                sendBanList(connection, bans);
+                return;
+            }
+
+            await sequelize.query(`DELETE FROM bans WHERE server_id = ${Number(1)}`);
+
+            if (Array.isArray(m.bans) && m.bans.length > 0) {
+                for (const entry of m.bans) {
+                    await sequelize.query(
+                        `INSERT INTO bans (server_id, base, mask, name, hash, reason, start, duration)
+                         VALUES (
+                            ${Number(1)},
+                            ${sequelize.escape(entry.address || Buffer.alloc(0))},
+                            ${sequelize.escape(Number(entry.mask || 0))},
+                            ${sequelize.escape(entry.name || null)},
+                            ${sequelize.escape(entry.hash || null)},
+                            ${sequelize.escape(entry.reason || null)},
+                            ${sequelize.escape(entry.start ? new Date(entry.start) : null)},
+                            ${sequelize.escape(Number(entry.duration || 0))}
+                         )`
+                    );
+                }
+            }
         });
 
         connection.on('requestBlob', m => {
