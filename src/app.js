@@ -2892,6 +2892,10 @@ async function startServer(server_id) {
         connection.state = 'version-sent';
 
         connection.on('authenticate', async m => {
+            if (connection.state !== 'version-sent') {
+                return;
+            }
+
             connection.state = 'authenticating';
             const peerCertificate = socket.getPeerCertificate();
             const certificateHash =
