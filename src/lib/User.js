@@ -4,11 +4,14 @@ import Users from '../models/users.js';
 import UserInfo from '../models/user_info.js';
 import { getBlob, getTextBlob, isBlobHash, putBlob, putTextBlob } from './blobStore.js';
 import { verifySaltedSha1PasswordHash } from './passwordHash.js';
+import SessionPool from './sessionPool.js';
 
 class User extends EventEmitter {
     users = {};
 
     sessionToChannels = {};
+    activeRegisteredUserIds = new Map();
+    pendingRegisteredUserIds = new Set();
 
     constructor(log, options) {
         super();
@@ -16,6 +19,7 @@ class User extends EventEmitter {
         this.log = log;
         this.options = options || {};
         this.serverId = Number(this.options.serverId || 1);
+        this.sessionPool = this.options.sessionPool || new SessionPool();
         this.id = 100;
     }
 
@@ -207,32 +211,53 @@ class User extends EventEmitter {
             }
         }
 
+        let reservedRegisteredUserId = null;
         if (matchedUser) {
-            const rows = await UserInfo.findAll({
-                where: {
-                    server_id: this.serverId,
-                    user_id: matchedUser.user_id
-                }
-            }).catch(err => {
-                this.log.error(new Error(err));
+            const registeredUserId = Number(matchedUser.user_id);
+            if (
+                this.activeRegisteredUserIds.has(registeredUserId) ||
+                this.pendingRegisteredUserIds.has(registeredUserId)
+            ) {
+                return {
+                    id: null,
+                    reject: {
+                        type: 5,
+                        reason: 'Username is already in use'
+                    }
+                };
+            }
 
-                return [];
-            });
+            this.pendingRegisteredUserIds.add(registeredUserId);
+            reservedRegisteredUserId = registeredUserId;
+        }
 
-            user_model.userId = matchedUser.user_id;
-            user_model.channelId = matchedUser.lastchannel || 0;
-            rememberedChannel = matchedUser.lastchannel;
+        try {
+            if (matchedUser) {
+                const rows = await UserInfo.findAll({
+                    where: {
+                        server_id: this.serverId,
+                        user_id: matchedUser.user_id
+                    }
+                }).catch(err => {
+                    this.log.error(new Error(err));
 
-            if (matchedUser.texture && matchedUser.texture.length > 0) {
-                const rawTexture = Buffer.isBuffer(matchedUser.texture)
-                    ? Buffer.from(matchedUser.texture)
-                    : Buffer.from(String(matchedUser.texture));
+                    return [];
+                });
 
-                if (Buffer.isBuffer(matchedUser.texture) || !isBlobHash(String(matchedUser.texture))) {
-                    const textureBlob = await putBlob(rawTexture);
-                    user_model.texture = rawTexture;
-                    user_model.textureBlob = textureBlob;
-                    user_model.textureHash = Buffer.from(textureBlob, 'hex');
+                user_model.userId = matchedUser.user_id;
+                user_model.channelId = matchedUser.lastchannel || 0;
+                rememberedChannel = matchedUser.lastchannel;
+
+                if (matchedUser.texture && matchedUser.texture.length > 0) {
+                    const rawTexture = Buffer.isBuffer(matchedUser.texture)
+                        ? Buffer.from(matchedUser.texture)
+                        : Buffer.from(String(matchedUser.texture));
+
+                    if (Buffer.isBuffer(matchedUser.texture) || !isBlobHash(String(matchedUser.texture))) {
+                        const textureBlob = await putBlob(rawTexture);
+                        user_model.texture = rawTexture;
+                        user_model.textureBlob = textureBlob;
+                        user_model.textureHash = Buffer.from(textureBlob, 'hex');
 
                         await Users.update(
                             {
@@ -244,91 +269,98 @@ class User extends EventEmitter {
                                     user_id: matchedUser.user_id
                                 }
                             }
-                    ).catch(err => {
-                        this.log.error(new Error(err));
-                    });
-                } else {
-                    const textureBlob = String(matchedUser.texture);
-                    const texture = await getBlob(textureBlob);
+                        ).catch(err => {
+                            this.log.error(new Error(err));
+                        });
+                    } else {
+                        const textureBlob = String(matchedUser.texture);
+                        const texture = await getBlob(textureBlob);
 
-                    if (texture) {
-                        user_model.texture = texture;
-                        user_model.textureBlob = textureBlob;
-                        user_model.textureHash = Buffer.from(textureBlob, 'hex');
-                    }
-                }
-            }
-
-            for (const { key, value } of rows) {
-                if (key === 2) {
-                    if (value && value.length > 0) {
-                        const commentValue = String(value);
-
-                        if (!isBlobHash(commentValue)) {
-                            const commentBlob = await putTextBlob(commentValue);
-                            user_model.comment = commentValue;
-                            user_model.commentBlob = commentBlob;
-                            user_model.commentHash = Buffer.from(commentBlob, 'hex');
-
-                            await UserInfo.update(
-                                {
-                                    value: commentBlob
-                                },
-                                {
-                                    where: {
-                                        server_id: this.serverId,
-                                        user_id: matchedUser.user_id,
-                                        key: 2
-                                    }
-                                }
-                            ).catch(err => {
-                                this.log.error(new Error(err));
-                            });
-                        } else {
-                            user_model.commentBlob = commentValue;
-                            user_model.commentHash = Buffer.from(commentValue, 'hex');
-                            const comment = await getTextBlob(commentValue);
-                            if (comment) {
-                                user_model.comment = comment;
-                            }
+                        if (texture) {
+                            user_model.texture = texture;
+                            user_model.textureBlob = textureBlob;
+                            user_model.textureHash = Buffer.from(textureBlob, 'hex');
                         }
                     }
                 }
-                if (key === 3 && user_data.hash) {
-                    user_model.hash = value;
+
+                for (const { key, value } of rows) {
+                    if (key === 2) {
+                        if (value && value.length > 0) {
+                            const commentValue = String(value);
+
+                            if (!isBlobHash(commentValue)) {
+                                const commentBlob = await putTextBlob(commentValue);
+                                user_model.comment = commentValue;
+                                user_model.commentBlob = commentBlob;
+                                user_model.commentHash = Buffer.from(commentBlob, 'hex');
+
+                                await UserInfo.update(
+                                    {
+                                        value: commentBlob
+                                    },
+                                    {
+                                        where: {
+                                            server_id: this.serverId,
+                                            user_id: matchedUser.user_id,
+                                            key: 2
+                                        }
+                                    }
+                                ).catch(err => {
+                                    this.log.error(new Error(err));
+                                });
+                            } else {
+                                user_model.commentBlob = commentValue;
+                                user_model.commentHash = Buffer.from(commentValue, 'hex');
+                                const comment = await getTextBlob(commentValue);
+                                if (comment) {
+                                    user_model.comment = comment;
+                                }
+                            }
+                        }
+                    }
+                    if (key === 3 && user_data.hash) {
+                        user_model.hash = value;
+                    }
                 }
             }
-        }
 
-        _.each(user_data, (item, key) => {
-            if (key === 'channelId' && rememberedChannel !== null && rememberedChannel !== undefined) {
-                return;
+            _.each(user_data, (item, key) => {
+                if (key === 'channelId' && rememberedChannel !== null && rememberedChannel !== undefined) {
+                    return;
+                }
+
+                if (user_model[key] !== undefined) {
+                    user_model[key] = item;
+                }
+            });
+
+            if (matchedUser) {
+                user_model.name = matchedUser.name;
             }
 
-            if (user_model[key] !== undefined) {
-                user_model[key] = item;
+            const id = this.id++;
+            const sessionId = this.sessionPool.get();
+
+            this.users[id] = user_model;
+
+            this.users[id].session = sessionId;
+            this.sessionToChannels[sessionId] = this.users[id].channelId;
+
+            if (user_model.userId !== null && user_model.userId !== undefined) {
+                const registeredUserId = Number(user_model.userId);
+                this.activeRegisteredUserIds.set(registeredUserId, id);
             }
-        });
 
-        if (matchedUser) {
-            user_model.name = matchedUser.name;
+            return {
+                id,
+                reject: rejectAuth
+            };
+        } finally {
+            if (reservedRegisteredUserId !== null) {
+                this.pendingRegisteredUserIds.delete(reservedRegisteredUserId);
+            }
         }
-
-        const id = this.id++;
-
-        this.users[id] = user_model;
-
-        this.users[id].session = id;
-
-        if (this.users[id].session === 0) {
-            this.users[id].session = 100;
-        }
-
-        this.sessionToChannels[this.users[id].session] = this.users[id].channelId;
-        return {
-            id,
-            reject: rejectAuth
-        };
     }
 
     getUser(id) {
@@ -346,11 +378,39 @@ class User extends EventEmitter {
             return {};
         }
 
+        const hadUserId = user.userId !== null && user.userId !== undefined;
+        const previousUserId = hadUserId ? Number(user.userId) : null;
+        const hasUserIdChange = Object.prototype.hasOwnProperty.call(user_data, 'userId');
+        const nextUserId =
+            hasUserIdChange && user_data.userId !== null && user_data.userId !== undefined
+                ? Number(user_data.userId)
+                : null;
+
+        if (hasUserIdChange && nextUserId !== null) {
+            const activeSessionId = this.activeRegisteredUserIds.get(nextUserId);
+            if (activeSessionId !== undefined && activeSessionId !== id) {
+                throw new Error('Registered user is already active');
+            }
+        }
+
         _.each(user_data, (item, key) => {
             if (user[key] !== undefined) {
                 user[key] = item;
             }
         });
+
+        if (hasUserIdChange) {
+            if (previousUserId !== null) {
+                const activeSessionId = this.activeRegisteredUserIds.get(previousUserId);
+                if (activeSessionId === id) {
+                    this.activeRegisteredUserIds.delete(previousUserId);
+                }
+            }
+
+            if (nextUserId !== null) {
+                this.activeRegisteredUserIds.set(nextUserId, id);
+            }
+        }
 
         this.sessionToChannels[this.users[id].session] = this.users[id].channelId;
 
@@ -369,6 +429,20 @@ class User extends EventEmitter {
         }
 
         delete this.sessionToChannels[user.session];
+
+        if (user.userId !== null && user.userId !== undefined) {
+            const registeredUserId = Number(user.userId);
+            const activeSessionId = this.activeRegisteredUserIds.get(registeredUserId);
+            if (activeSessionId === id) {
+                this.activeRegisteredUserIds.delete(registeredUserId);
+            }
+            this.pendingRegisteredUserIds.delete(registeredUserId);
+        }
+
+        if (user.session !== null && user.session !== undefined) {
+            this.sessionPool.reclaim(user.session);
+        }
+
         delete this.users[id];
     }
 }

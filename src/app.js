@@ -2614,7 +2614,7 @@ async function startServer(server_id) {
                 }
 
                 try {
-                    const registeredUserId = await createRegisteredUser(1, target, target.hash);
+                    const registeredUserId = await createRegisteredUser(server_id, target, target.hash);
                     const updatedUser = await Users.updateUser(targetUserId, {
                         userId: registeredUserId
                     });
