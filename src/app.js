@@ -132,6 +132,13 @@ async function loadChannelLinks(serverId, channels) {
     }
 }
 
+async function getServerIds() {
+    const [rows] = await sequelize.query('SELECT server_id FROM servers ORDER BY server_id ASC');
+    return rows
+        .map(row => Number(row.server_id))
+        .filter(serverId => Number.isFinite(serverId) && serverId > 0);
+}
+
 function buildChannelStatePayload(channel, clientVersion = 0) {
     const description = channel.description || '';
     const descriptionBuffer = Buffer.from(description);
@@ -1058,6 +1065,7 @@ async function startServer(server_id) {
     const aclState = await loadAclState(server_id);
 
     const Users = new User(log, {
+        serverId: server_id,
         maxUsers: serverConfig.users,
         serverPassword: serverConfig.serverpassword,
         usernameValidator
@@ -1458,7 +1466,7 @@ async function startServer(server_id) {
                 const [rows] = await sequelize.query(
                     `SELECT COALESCE(MAX(channel_id), 0) AS max_channel_id
                      FROM channels
-                     WHERE server_id = ${Number(1)}`,
+                     WHERE server_id = ${Number(server_id)}`,
                     { transaction }
                 );
                 const nextChannelId = Number(rows?.[0]?.max_channel_id || 0) + 1;
@@ -1466,7 +1474,7 @@ async function startServer(server_id) {
                 await sequelize.query(
                     `INSERT INTO channels (server_id, channel_id, parent_id, name, inheritacl, temporary)
                      VALUES (
-                        ${Number(1)},
+                        ${Number(server_id)},
                         ${Number(nextChannelId)},
                         ${Number(targetParentId)},
                         ${sequelize.escape(targetName)},
@@ -1476,23 +1484,23 @@ async function startServer(server_id) {
                     { transaction }
                 );
 
-                await setChannelDescriptionValue(1, nextChannelId, descriptionValue, transaction);
+                await setChannelDescriptionValue(server_id, nextChannelId, descriptionValue, transaction);
                 if (positionProvided) {
-                    await setChannelInfoValue(1, nextChannelId, 1, Number(m.position || 0), transaction);
+                    await setChannelInfoValue(server_id, nextChannelId, 1, Number(m.position || 0), transaction);
                 }
 
                 if (user.userId !== null && user.userId !== undefined) {
                     await sequelize.query(
                         `INSERT INTO "groups" (server_id, name, channel_id, inherit, inheritable)
-                         VALUES (1, 'admin', ${Number(nextChannelId)}, 1, 1)`,
+                         VALUES (${Number(server_id)}, 'admin', ${Number(nextChannelId)}, 1, 1)`,
                         { transaction }
                     );
 
                     await sequelize.query(
                         `INSERT INTO group_members (group_id, server_id, user_id, addit)
                          VALUES (
-                            (SELECT group_id FROM "groups" WHERE server_id = 1 AND channel_id = ${Number(nextChannelId)} AND name = 'admin' LIMIT 1),
-                            1,
+                            (SELECT group_id FROM "groups" WHERE server_id = ${Number(server_id)} AND channel_id = ${Number(nextChannelId)} AND name = 'admin' LIMIT 1),
+                            ${Number(server_id)},
                             ${Number(user.userId)},
                             1
                          )`,
@@ -1501,7 +1509,7 @@ async function startServer(server_id) {
                 } else if (user.hash) {
                     await sequelize.query(
                         `INSERT INTO acl (server_id, channel_id, priority, user_id, group_name, apply_here, apply_sub, grantpriv, revokepriv)
-                         VALUES (1, ${Number(nextChannelId)}, 1, NULL, ${sequelize.escape(`$${user.hash}`)}, 1, 1, ${
+                         VALUES (${Number(server_id)}, ${Number(nextChannelId)}, 1, NULL, ${sequelize.escape(`$${user.hash}`)}, 1, 1, ${
                              PERMISSIONS.Write | PERMISSIONS.Traverse
                          }, 0)`,
                         { transaction }
@@ -1657,17 +1665,17 @@ async function startServer(server_id) {
                  SET parent_id = ${Number(nextParentId)},
                      name = ${sequelize.escape(nextName)},
                      temporary = ${nextTemporary ? 1 : 0}
-                 WHERE server_id = ${Number(1)}
+                 WHERE server_id = ${Number(server_id)}
                    AND channel_id = ${Number(requestedChannelId)}`,
                 { transaction }
             );
 
             if (descriptionProvided) {
-                await setChannelDescriptionValue(1, requestedChannelId, descriptionValue, transaction);
+                await setChannelDescriptionValue(server_id, requestedChannelId, descriptionValue, transaction);
             }
 
             if (positionProvided) {
-                await setChannelInfoValue(1, requestedChannelId, 1, Number(m.position || 0), transaction);
+                await setChannelInfoValue(server_id, requestedChannelId, 1, Number(m.position || 0), transaction);
             }
 
             if (linksProvided) {
@@ -1679,20 +1687,20 @@ async function startServer(server_id) {
                     currentLinks.add(Number(linkId));
                 }
                 currentLinks.delete(requestedChannelId);
-                await syncChannelLinks(1, requestedChannelId, [...currentLinks], transaction);
+                await syncChannelLinks(server_id, requestedChannelId, [...currentLinks], transaction);
             }
 
             return currentChannel;
         });
 
-        const refreshedChannels = await getChannels(1);
-        await loadChannelLinks(1, refreshedChannels);
+        const refreshedChannels = await getChannels(server_id);
+        await loadChannelLinks(server_id, refreshedChannels);
         Object.keys(channels).forEach(key => {
             delete channels[key];
         });
         Object.assign(channels, refreshedChannels);
 
-        const refreshedAclState = await loadAclState(1);
+        const refreshedAclState = await loadAclState(server_id);
         refreshAclState(refreshedAclState);
 
         broadcastChannelState(channels[Number(updatedChannel.channel_id)]);
@@ -1774,18 +1782,18 @@ async function startServer(server_id) {
 
             await sequelize.query(
                 `DELETE FROM channel_links
-                 WHERE server_id = ${Number(1)}
+                 WHERE server_id = ${Number(server_id)}
                    AND (channel_id IN (${idList}) OR link_id IN (${idList}))`,
                 { transaction }
             );
 
             await sequelize.query(
                 `DELETE FROM group_members
-                 WHERE server_id = ${Number(1)}
+                 WHERE server_id = ${Number(server_id)}
                    AND group_id IN (
                        SELECT group_id
                        FROM "groups"
-                       WHERE server_id = ${Number(1)}
+                       WHERE server_id = ${Number(server_id)}
                          AND channel_id IN (${idList})
                    )`,
                 { transaction }
@@ -1793,41 +1801,41 @@ async function startServer(server_id) {
 
             await sequelize.query(
                 `DELETE FROM acl
-                 WHERE server_id = ${Number(1)}
+                 WHERE server_id = ${Number(server_id)}
                    AND channel_id IN (${idList})`,
                 { transaction }
             );
 
             await sequelize.query(
                 `DELETE FROM channel_info
-                 WHERE server_id = ${Number(1)}
+                 WHERE server_id = ${Number(server_id)}
                    AND channel_id IN (${idList})`,
                 { transaction }
             );
 
             await sequelize.query(
                 `DELETE FROM "groups"
-                 WHERE server_id = ${Number(1)}
+                 WHERE server_id = ${Number(server_id)}
                    AND channel_id IN (${idList})`,
                 { transaction }
             );
 
             await sequelize.query(
                 `DELETE FROM channels
-                 WHERE server_id = ${Number(1)}
+                 WHERE server_id = ${Number(server_id)}
                    AND channel_id IN (${idList})`,
                 { transaction }
             );
         });
 
-        const refreshedChannels = await getChannels(1);
-        await loadChannelLinks(1, refreshedChannels);
+        const refreshedChannels = await getChannels(server_id);
+        await loadChannelLinks(server_id, refreshedChannels);
         Object.keys(channels).forEach(key => {
             delete channels[key];
         });
         Object.assign(channels, refreshedChannels);
 
-        const refreshedAclState = await loadAclState(1);
+        const refreshedAclState = await loadAclState(server_id);
         refreshAclState(refreshedAclState);
 
         for (const { id, item } of movedUsers) {
@@ -2155,7 +2163,7 @@ async function startServer(server_id) {
             }
 
             if (!Array.isArray(m.users) || m.users.length === 0) {
-                await sendRegisteredUsers(connection, 1, m);
+                await sendRegisteredUsers(connection, server_id, m);
                 return;
             }
 
@@ -2168,14 +2176,14 @@ async function startServer(server_id) {
                 if (entry.name === undefined || entry.name === null) {
                     await RegisteredUsers.destroy({
                         where: {
-                            server_id: 1,
+                            server_id,
                             user_id: userId
                         }
                     });
 
                     await UserInfo.destroy({
                         where: {
-                            server_id: 1,
+                            server_id,
                             user_id: userId,
                             key: 3
                         }
@@ -2189,14 +2197,14 @@ async function startServer(server_id) {
                     },
                     {
                         where: {
-                            server_id: 1,
+                            server_id,
                             user_id: userId
                         }
                     }
                 );
             }
 
-            await sendRegisteredUsers(connection, 1, {});
+            await sendRegisteredUsers(connection, server_id, {});
         });
 
         connection.on('banList', async m => {
@@ -2218,19 +2226,19 @@ async function startServer(server_id) {
             }
 
             if (m.query) {
-                const bans = await getBans(1);
+                const bans = await getBans(server_id);
                 sendBanList(connection, bans);
                 return;
             }
 
-            await sequelize.query(`DELETE FROM bans WHERE server_id = ${Number(1)}`);
+            await sequelize.query(`DELETE FROM bans WHERE server_id = ${Number(server_id)}`);
 
             if (Array.isArray(m.bans) && m.bans.length > 0) {
                 for (const entry of m.bans) {
                     await sequelize.query(
                         `INSERT INTO bans (server_id, base, mask, name, hash, reason, start, duration)
                          VALUES (
-                            ${Number(1)},
+                            ${Number(server_id)},
                             ${sequelize.escape(entry.address || Buffer.alloc(0))},
                             ${sequelize.escape(Number(entry.mask || 0))},
                             ${sequelize.escape(entry.name || null)},
@@ -2768,7 +2776,7 @@ async function startServer(server_id) {
                             },
                             {
                                 where: {
-                                    server_id: 1,
+                                    server_id,
                                     user_id: target.userId
                                 }
                             }
@@ -2788,7 +2796,7 @@ async function startServer(server_id) {
                             },
                             {
                                 where: {
-                                    server_id: 1,
+                                    server_id,
                                     user_id: target.userId
                                 }
                             }
@@ -3218,11 +3226,13 @@ async function startServer(server_id) {
 }
 
 const bootstrap = await ensureDatabaseReady();
+const serverIds = await getServerIds();
+const primaryServerId = serverIds[0] ?? 1;
 
 if (bootstrap.superUserPassword) {
     log.info(
         {
-            serverId: 1,
+            serverId: primaryServerId,
             username: 'SuperUser',
             password: bootstrap.superUserPassword
         },
@@ -3230,7 +3240,9 @@ if (bootstrap.superUserPassword) {
     );
 }
 
-startServer(1).catch(e => {
+try {
+    await Promise.all(serverIds.map(serverId => startServer(serverId)));
+} catch (e) {
     log.error(e);
     process.exit(1);
-});
+}

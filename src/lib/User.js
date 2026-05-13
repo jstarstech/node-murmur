@@ -15,6 +15,7 @@ class User extends EventEmitter {
 
         this.log = log;
         this.options = options || {};
+        this.serverId = Number(this.options.serverId || 1);
         this.id = 100;
     }
 
@@ -34,7 +35,7 @@ class User extends EventEmitter {
             },
             {
                 where: {
-                    server_id: 1,
+                    server_id: this.serverId,
                     user_id: user.userId
                 }
             }
@@ -112,7 +113,7 @@ class User extends EventEmitter {
         if (user_data.name === 'SuperUser') {
             const superUser = await Users.findOne({
                 where: {
-                    server_id: 1,
+                    server_id: this.serverId,
                     user_id: 0
                 }
             }).catch(err => {
@@ -145,7 +146,7 @@ class User extends EventEmitter {
 
         const namedUser = await Users.findOne({
             where: {
-                server_id: 1,
+                server_id: this.serverId,
                 name: user_data.name
             }
         }).catch(err => {
@@ -157,7 +158,7 @@ class User extends EventEmitter {
         if (!matchedUser && !rejectAuth && namedUser) {
             const namedUserInfo = await UserInfo.findOne({
                 where: {
-                    server_id: 1,
+                    server_id: this.serverId,
                     user_id: namedUser.user_id,
                     key: 3
                 }
@@ -182,7 +183,7 @@ class User extends EventEmitter {
         if (!matchedUser && !rejectAuth && user_data.hash) {
             const matchedInfo = await UserInfo.findOne({
                 where: {
-                    server_id: 1,
+                    server_id: this.serverId,
                     key: 3,
                     value: user_data.hash
                 }
@@ -195,7 +196,7 @@ class User extends EventEmitter {
             if (matchedInfo && matchedInfo.user_id !== null && matchedInfo.user_id !== undefined) {
                 matchedUser = await Users.findOne({
                     where: {
-                        server_id: 1,
+                        server_id: this.serverId,
                         user_id: matchedInfo.user_id
                     }
                 }).catch(err => {
@@ -209,7 +210,7 @@ class User extends EventEmitter {
         if (matchedUser) {
             const rows = await UserInfo.findAll({
                 where: {
-                    server_id: 1,
+                    server_id: this.serverId,
                     user_id: matchedUser.user_id
                 }
             }).catch(err => {
@@ -233,16 +234,16 @@ class User extends EventEmitter {
                     user_model.textureBlob = textureBlob;
                     user_model.textureHash = Buffer.from(textureBlob, 'hex');
 
-                    await Users.update(
-                        {
-                            texture: textureBlob
-                        },
-                        {
-                            where: {
-                                server_id: 1,
-                                user_id: matchedUser.user_id
+                        await Users.update(
+                            {
+                                texture: textureBlob
+                            },
+                            {
+                                where: {
+                                    server_id: this.serverId,
+                                    user_id: matchedUser.user_id
+                                }
                             }
-                        }
                     ).catch(err => {
                         this.log.error(new Error(err));
                     });
@@ -275,7 +276,7 @@ class User extends EventEmitter {
                                 },
                                 {
                                     where: {
-                                        server_id: 1,
+                                        server_id: this.serverId,
                                         user_id: matchedUser.user_id,
                                         key: 2
                                     }
