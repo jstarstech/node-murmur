@@ -337,6 +337,8 @@ class User extends EventEmitter {
 
             if (matchedUser) {
                 user_model.name = matchedUser.name;
+            } else {
+                user_model.name = user_data.name;
             }
 
             const id = this.id++;
@@ -439,11 +441,11 @@ class User extends EventEmitter {
             this.pendingRegisteredUserIds.delete(registeredUserId);
         }
 
-        if (user.session !== null && user.session !== undefined) {
-            this.sessionPool.reclaim(user.session);
-        }
-
         delete this.users[id];
+    }
+
+    releaseSession(sessionId) {
+        this.sessionPool.reclaim(sessionId);
     }
 }
 

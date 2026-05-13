@@ -1071,6 +1071,26 @@ async function startServer(server_id) {
         usernameValidator
     });
     const connectionsBySession = new Map();
+
+    function disconnectLiveSessionsByRegisteredUserId(userId) {
+        const liveUsers = Object.entries(Users.users).filter(([, user]) => {
+            return user && Number(user.userId) === Number(userId);
+        });
+
+        for (const [, user] of liveUsers) {
+            const connection = connectionsBySession.get(user.session);
+            if (!connection) {
+                continue;
+            }
+
+            connection.removalInfo = {
+                actor: null,
+                reason: 'Removed by administrator',
+                ban: false
+            };
+            connection.disconnect();
+        }
+    }
     const contextActions = new Map();
     const udpAddrToConnection = new Map();
     const codecState = {
@@ -2015,6 +2035,7 @@ async function startServer(server_id) {
 
             const user = Users.getUser(uid);
             if (user.session) {
+                const sessionId = user.session;
                 const removalInfo = connection.removalInfo || {};
                 Users.emit(
                     'broadcast',
@@ -2027,14 +2048,24 @@ async function startServer(server_id) {
                     },
                     uid
                 );
-                connectionsBySession.delete(user.session);
+                if (connectionsBySession.get(sessionId) === connection) {
+                    connectionsBySession.delete(sessionId);
+                }
                 if (connection.udpaddr) {
-                    udpAddrToConnection.delete(getUdpAddrKey(connection.udpaddr));
+                    const addrKey = getUdpAddrKey(connection.udpaddr);
+                    if (udpAddrToConnection.get(addrKey) === connection) {
+                        udpAddrToConnection.delete(addrKey);
+                    }
                 }
                 await Users.deleteUser(uid);
+                Users.releaseSession(sessionId);
             }
 
-            if (connection.sessionId !== undefined && connection.sessionId !== null) {
+            if (
+                connection.sessionId !== undefined &&
+                connection.sessionId !== null &&
+                connectionsBySession.get(connection.sessionId) === connection
+            ) {
                 connectionsBySession.delete(connection.sessionId);
             }
 
@@ -2173,7 +2204,9 @@ async function startServer(server_id) {
                     continue;
                 }
 
-                if (entry.name === undefined || entry.name === null) {
+                if (entry.name === undefined || entry.name === null || String(entry.name).trim().length === 0) {
+                    disconnectLiveSessionsByRegisteredUserId(userId);
+
                     await RegisteredUsers.destroy({
                         where: {
                             server_id,
