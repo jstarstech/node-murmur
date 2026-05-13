@@ -48,7 +48,8 @@ class User extends EventEmitter {
         });
     }
 
-    async addUser(user_data) {
+    async addUser(user_data, options = {}) {
+        const allocateSession = options.allocateSession !== false;
         const user_model = {
             session: null,
             name: '',
@@ -75,8 +76,7 @@ class User extends EventEmitter {
 
         let matchedUser = null;
         let rejectAuth = null;
-        const serverPassword =
-            typeof this.options.serverPassword === 'string' ? this.options.serverPassword : '';
+        const serverPassword = typeof this.options.serverPassword === 'string' ? this.options.serverPassword : '';
         const usernameValidator = this.options.usernameValidator;
 
         if (!user_data.name) {
@@ -327,27 +327,46 @@ class User extends EventEmitter {
             }
 
             const id = this.id++;
-            const sessionId = this.sessionPool.get();
 
             this.users[id] = user_model;
 
-            this.users[id].session = sessionId;
-            this.sessionToChannels[sessionId] = this.users[id].channelId;
-
-            if (user_model.userId !== null && user_model.userId !== undefined) {
-                const registeredUserId = Number(user_model.userId);
-                this.activeRegisteredUserIds.set(registeredUserId, id);
+            if (allocateSession) {
+                this.activateUser(id);
             }
 
             return {
                 id,
                 reject: rejectAuth
             };
-        } finally {
+        } catch (err) {
             if (reservedRegisteredUserId !== null) {
                 this.pendingRegisteredUserIds.delete(reservedRegisteredUserId);
             }
+
+            throw err;
         }
+    }
+
+    activateUser(id) {
+        const user = this.users[id];
+
+        if (!user) {
+            return {};
+        }
+
+        if (user.session === null || user.session === undefined) {
+            user.session = this.sessionPool.get();
+        }
+
+        this.sessionToChannels[user.session] = user.channelId;
+
+        if (user.userId !== null && user.userId !== undefined) {
+            const registeredUserId = Number(user.userId);
+            this.pendingRegisteredUserIds.delete(registeredUserId);
+            this.activeRegisteredUserIds.set(registeredUserId, id);
+        }
+
+        return user;
     }
 
     getUser(id) {

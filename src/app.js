@@ -134,9 +134,7 @@ async function loadChannelLinks(serverId, channels) {
 
 async function getServerIds() {
     const [rows] = await sequelize.query('SELECT server_id FROM servers ORDER BY server_id ASC');
-    return rows
-        .map(row => Number(row.server_id))
-        .filter(serverId => Number.isFinite(serverId) && serverId > 0);
+    return rows.map(row => Number(row.server_id)).filter(serverId => Number.isFinite(serverId) && serverId > 0);
 }
 
 function buildChannelStatePayload(channel, clientVersion = 0) {
@@ -2912,18 +2910,22 @@ async function startServer(server_id) {
                 return;
             }
 
-            const authResult = await Users.addUser({
-                name: m.username,
-                password: m.password,
-                opus: m.opus,
-                hash: certificateHash,
-                channelId: serverConfig.defaultchannel
-            });
+            const authResult = await Users.addUser(
+                {
+                    name: m.username,
+                    password: m.password,
+                    opus: m.opus,
+                    hash: certificateHash,
+                    channelId: serverConfig.defaultchannel
+                },
+                { allocateSession: false }
+            );
 
             connection.clientCeltVersions = Array.isArray(m.celtVersions) ? m.celtVersions.slice() : [];
             connection.clientOpus = Boolean(m.opus);
 
             if (authResult.reject) {
+                await Users.deleteUser(authResult.id);
                 connection.sendMessage('Reject', authResult.reject);
                 connection.disconnect();
                 return;
@@ -2946,12 +2948,14 @@ async function startServer(server_id) {
                 return;
             }
 
+            const activeUser = Users.activateUser(authResult.id);
+
             uid = authResult.id;
             connection.state = 'authenticated';
 
             auth = true;
 
-            connection.sessionId = Users.getUser(uid).session;
+            connection.sessionId = activeUser.session;
             connectionsBySession.set(connection.sessionId, connection);
 
             const negotiatedMode =
@@ -2965,7 +2969,7 @@ async function startServer(server_id) {
             const rootChannel = channels[0];
             sendChannelTree(connection, channels, rootChannel);
 
-            const initialUserState = buildUserStatePayload(Users.getUser(uid), connection.clientVersion, {
+            const initialUserState = buildUserStatePayload(activeUser, connection.clientVersion, {
                 includeBlobs: false,
                 includeActor: false,
                 includeUnsetFlags: false
@@ -2993,20 +2997,20 @@ async function startServer(server_id) {
                 );
             });
 
-                connection.sendMessage('ServerSync', {
-                    session: Users.getUser(uid).session,
-                    maxBandwidth: serverConfig.bandwidth,
-                    welcomeText: serverConfig.welcometext,
-                    permissions: computePermissions(0, Users.getUser(uid), channels, aclState)
-                });
+            connection.sendMessage('ServerSync', {
+                session: activeUser.session,
+                maxBandwidth: serverConfig.bandwidth,
+                welcomeText: serverConfig.welcometext,
+                permissions: computePermissions(0, activeUser, channels, aclState)
+            });
 
-                connection.sendMessage('ServerConfig', {
-                    maxBandwidth: null,
-                    welcomeText: null,
-                    allowHtml: Boolean(serverConfig.allowhtml),
-                    messageLength: serverConfig.textmessagelength,
-                    imageMessageLength: serverConfig.imagemessagelength
-                });
+            connection.sendMessage('ServerConfig', {
+                maxBandwidth: null,
+                welcomeText: null,
+                allowHtml: Boolean(serverConfig.allowhtml),
+                messageLength: serverConfig.textmessagelength,
+                imageMessageLength: serverConfig.imagemessagelength
+            });
 
             const codecChanged = updateCodecVersions(connection);
             if (!codecChanged) {

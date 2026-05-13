@@ -246,8 +246,7 @@ async function ensureSelfRegisterAcl(serverId, transaction) {
            AND channel_id = 0
            AND group_name = 'auth'
            AND apply_here = 1
-           AND apply_sub = 1`
-        ,
+           AND apply_sub = 1`,
         { transaction }
     );
 }
@@ -269,8 +268,7 @@ async function ensureSuperUser(serverId, transaction) {
                 `UPDATE users
                  SET name = 'SuperUser'
                  WHERE server_id = ${Number(serverId)}
-                   AND user_id = 0`
-                ,
+                   AND user_id = 0`,
                 { transaction }
             );
         }
@@ -291,8 +289,7 @@ async function ensureSuperUser(serverId, transaction) {
                  pw = ${sequelize.escape(pwHash)},
                  lastchannel = ${sequelize.escape(lastChannel)}
              WHERE server_id = ${Number(serverId)}
-               AND user_id = 0`
-            ,
+               AND user_id = 0`,
             { transaction }
         );
     } else {
