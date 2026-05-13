@@ -75,7 +75,6 @@ class User extends EventEmitter {
 
         let matchedUser = null;
         let rejectAuth = null;
-        const maxUsers = Number(this.options.maxUsers || 0);
         const serverPassword =
             typeof this.options.serverPassword === 'string' ? this.options.serverPassword : '';
         const usernameValidator = this.options.usernameValidator;
@@ -96,20 +95,6 @@ class User extends EventEmitter {
                 reject: {
                     type: 2,
                     reason: 'Invalid username'
-                }
-            };
-        }
-
-        if (
-            maxUsers > 0 &&
-            Object.keys(this.users).length >= maxUsers &&
-            user_data.name !== 'SuperUser'
-        ) {
-            return {
-                id: null,
-                reject: {
-                    type: 6,
-                    reason: 'Server full'
                 }
             };
         }

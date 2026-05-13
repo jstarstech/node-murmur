@@ -1066,7 +1066,6 @@ async function startServer(server_id) {
 
     const Users = new User(log, {
         serverId: server_id,
-        maxUsers: serverConfig.users,
         serverPassword: serverConfig.serverpassword,
         usernameValidator
     });
@@ -1090,6 +1089,16 @@ async function startServer(server_id) {
             };
             connection.disconnect();
         }
+    }
+
+    function getLiveUserCount() {
+        let count = 0;
+        for (const connection of connectionsBySession.values()) {
+            if (connection && ['authenticated', 'ready'].includes(connection.state)) {
+                count += 1;
+            }
+        }
+        return count;
     }
     const contextActions = new Map();
     const udpAddrToConnection = new Map();
@@ -2916,6 +2925,23 @@ async function startServer(server_id) {
                 return;
             }
 
+            if (serverConfig.users > 0 && getLiveUserCount() >= serverConfig.users && m.username !== 'SuperUser') {
+                const rejectedUser = Users.getUser(authResult.id);
+                const rejectedSessionId = rejectedUser.session;
+
+                await Users.deleteUser(authResult.id);
+                if (rejectedSessionId !== undefined && rejectedSessionId !== null) {
+                    Users.releaseSession(rejectedSessionId);
+                }
+
+                connection.sendMessage('Reject', {
+                    type: 6,
+                    reason: 'Server full'
+                });
+                connection.disconnect();
+                return;
+            }
+
             uid = authResult.id;
             connection.state = 'authenticated';
 
@@ -3171,7 +3197,7 @@ async function startServer(server_id) {
             const buffer = BufferPack.pack('>idiii', [
                 0x00010204,
                 q[1],
-                Object.keys(Users.users).length,
+                getLiveUserCount(),
                 5,
                 Number(serverConfig.bandwidth || 0)
             ]);
