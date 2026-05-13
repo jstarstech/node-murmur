@@ -9,6 +9,9 @@ import { isBlobHash, putTextBlob } from './blobStore.js';
 const ROOT_DIR = path.dirname(fileURLToPath(new URL('../../package.json', import.meta.url)));
 const DEFAULT_CERT_PATH = './ssl/server.cert';
 const DEFAULT_KEY_PATH = './ssl/server.key';
+const DEFAULT_CHANNEL_NAME_PATTERN = '[ \\/\\-=\\w#\\[\\]\\{\\}\\(\\)@\\|\\.]+';
+const DEFAULT_USERNAME_PATTERN = '[-=\\w\\[\\]\\{\\}\\(\\)@\\|\\.]+';
+const DEFAULT_WELCOME_TEXT = 'Welcome to this server running Mumble.\nEnjoy your stay!';
 
 const SCHEMA_STATEMENTS = [
     `CREATE TABLE IF NOT EXISTS servers (
@@ -145,7 +148,7 @@ async function loadServerCertConfig(serverId) {
         `SELECT key, value
          FROM config
          WHERE server_id = ${Number(serverId)}
-           AND key IN ('certificate', 'key')`
+           AND key IN ('sslCert', 'sslKey')`
     );
 
     const config = new Map();
@@ -161,14 +164,14 @@ async function storeServerCertConfig(serverId, certPath, keyPath) {
         `UPDATE config
          SET value = ${sequelize.escape(certPath)}
          WHERE server_id = ${Number(serverId)}
-           AND key = 'certificate'`
+           AND key = 'sslCert'`
     );
 
     await sequelize.query(
         `UPDATE config
          SET value = ${sequelize.escape(keyPath)}
          WHERE server_id = ${Number(serverId)}
-           AND key = 'key'`
+           AND key = 'sslKey'`
     );
 }
 
@@ -274,8 +277,8 @@ async function normalizeExistingServerCertificates(serverId) {
     const certAbsPath = resolvePath(DEFAULT_CERT_PATH);
     const keyAbsPath = resolvePath(DEFAULT_KEY_PATH);
     const config = await loadServerCertConfig(serverId);
-    const certificate = config.get('certificate');
-    const privateKey = config.get('key');
+    const certificate = config.get('sslCert');
+    const privateKey = config.get('sslKey');
 
     if (
         typeof certificate === 'string' &&
@@ -346,22 +349,35 @@ async function seedDatabase() {
             (1, 0, 3, NULL, 'all', 1, 0, 524288, NULL)`
     );
     await ensureSelfRegisterAcl(1);
-    await sequelize.query(
-        `INSERT INTO config (server_id, key, value) VALUES
-            (1, 'allowhtml', 'true'),
-            (1, 'bandwidth', '140000'),
-            (1, 'certificate', ${sequelize.escape(DEFAULT_CERT_PATH)}),
-            (1, 'certrequired', 'true'),
-            (1, 'channelname', '[ \\/\\-=\\w#\\[\\]\\{\\}\\(\\)@\\|\\.]+'),
-            (1, 'defaultchannel', '30'),
-            (1, 'key', ${sequelize.escape(DEFAULT_KEY_PATH)}),
-            (1, 'rememberchannel', 'true'),
-            (1, 'textmessagelength', '5000'),
-            (1, 'timeout', '30'),
-            (1, 'username', '[-=\\w\\[\\]\\{\\}\\(\\)@\\|\\.]+'),
-            (1, 'usersperchannel', '0'),
-            (1, 'welcometext', 'Welcome to node-murmur!')`
+    const defaultConfig = {
+        allowhtml: true,
+        allowping: true,
+        bandwidth: 558000,
+        certrequired: false,
+        channelcountlimit: 1000,
+        channelname: DEFAULT_CHANNEL_NAME_PATTERN,
+        channelnestinglimit: 10,
+        defaultchannel: 0,
+        imagemessagelength: 1048576,
+        opusthreshold: 0,
+        rememberchannel: true,
+        rememberchannelduration: 0,
+        sendversion: true,
+        sslCert: DEFAULT_CERT_PATH,
+        sslKey: DEFAULT_KEY_PATH,
+        textmessagelength: 5000,
+        timeout: 30,
+        username: DEFAULT_USERNAME_PATTERN,
+        users: 100,
+        usersperchannel: 0,
+        welcometext: DEFAULT_WELCOME_TEXT
+    };
+
+    const configRows = Object.entries(defaultConfig).map(
+        ([key, value]) => `(1, ${sequelize.escape(key)}, ${sequelize.escape(String(value))})`
     );
+
+    await sequelize.query(`INSERT INTO config (server_id, key, value) VALUES ${configRows.join(',\n            ')}`);
 
     return ensureSuperUser(1);
 }

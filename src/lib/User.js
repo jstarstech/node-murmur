@@ -70,6 +70,10 @@ class User extends EventEmitter {
 
         let matchedUser = null;
         let rejectAuth = null;
+        const maxUsers = Number(this.options.maxUsers || 0);
+        const serverPassword =
+            typeof this.options.serverPassword === 'string' ? this.options.serverPassword : '';
+        const usernameValidator = this.options.usernameValidator;
 
         if (!user_data.name) {
             return {
@@ -77,6 +81,30 @@ class User extends EventEmitter {
                 reject: {
                     type: 2,
                     reason: 'Invalid username'
+                }
+            };
+        }
+
+        if (usernameValidator && !usernameValidator.test(user_data.name)) {
+            return {
+                id: null,
+                reject: {
+                    type: 2,
+                    reason: 'Invalid username'
+                }
+            };
+        }
+
+        if (
+            maxUsers > 0 &&
+            Object.keys(this.users).length >= maxUsers &&
+            user_data.name !== 'SuperUser'
+        ) {
+            return {
+                id: null,
+                reject: {
+                    type: 6,
+                    reason: 'Server full'
                 }
             };
         }
@@ -106,6 +134,13 @@ class User extends EventEmitter {
                     reason: 'Wrong password'
                 };
             }
+        }
+
+        if (!matchedUser && !rejectAuth && serverPassword && user_data.password !== serverPassword) {
+            rejectAuth = {
+                type: 4,
+                reason: 'Wrong password'
+            };
         }
 
         const namedUser = await Users.findOne({

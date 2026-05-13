@@ -33,6 +33,7 @@ import { createLogger } from './lib/logger.js';
 const log = createLogger();
 const CELT_COMPAT_BITSTREAM = -2147483637;
 const DEFAULT_CHANNEL_NAME_PATTERN = '[ \\-=\\w#\\[\\]\\{\\}\\(\\)@\\|\\.]+';
+const DEFAULT_USERNAME_PATTERN = '[-=\\w\\[\\]\\{\\}\\(\\)@\\|\\.]+';
 
 async function getChannels(server_id) {
     const channels = {};
@@ -467,6 +468,16 @@ function buildChannelNameValidator(pattern) {
         return new RegExp(`^(?:${source})$`);
     } catch {
         return new RegExp(`^(?:${DEFAULT_CHANNEL_NAME_PATTERN})$`);
+    }
+}
+
+function buildUsernameValidator(pattern) {
+    const source = typeof pattern === 'string' && pattern.length > 0 ? pattern : DEFAULT_USERNAME_PATTERN;
+
+    try {
+        return new RegExp(`^(?:${source})$`);
+    } catch {
+        return new RegExp(`^(?:${DEFAULT_USERNAME_PATTERN})$`);
     }
 }
 
@@ -983,7 +994,7 @@ async function startServer(server_id) {
             dbConfig.value = dbConfig.value === 'true';
         }
 
-        if (dbConfig.key === 'key' || dbConfig.key === 'certificate') {
+        if (dbConfig.key === 'sslKey' || dbConfig.key === 'sslCert') {
             serverConfig[dbConfig.key] = resolveConfigFileValue(dbConfig.value);
             continue;
         }
@@ -994,8 +1005,51 @@ async function startServer(server_id) {
     if (typeof serverConfig.port === 'undefined') {
         serverConfig.port = 64738;
     }
+    if (typeof serverConfig.bandwidth === 'undefined') {
+        serverConfig.bandwidth = 558000;
+    }
+    if (typeof serverConfig.users === 'undefined') {
+        serverConfig.users = 100;
+    }
+    if (typeof serverConfig.allowping === 'undefined') {
+        serverConfig.allowping = true;
+    }
+    if (typeof serverConfig.sendversion === 'undefined') {
+        serverConfig.sendversion = true;
+    }
+    if (typeof serverConfig.allowhtml === 'undefined') {
+        serverConfig.allowhtml = true;
+    }
+    if (typeof serverConfig.imagemessagelength === 'undefined') {
+        serverConfig.imagemessagelength = 1048576;
+    }
+    if (typeof serverConfig.textmessagelength === 'undefined') {
+        serverConfig.textmessagelength = 5000;
+    }
+    if (typeof serverConfig.defaultchannel === 'undefined') {
+        serverConfig.defaultchannel = 0;
+    }
+    if (typeof serverConfig.rememberchannel === 'undefined') {
+        serverConfig.rememberchannel = true;
+    }
+    if (typeof serverConfig.rememberchannelduration === 'undefined') {
+        serverConfig.rememberchannelduration = 0;
+    }
+    if (typeof serverConfig.opusthreshold === 'undefined') {
+        serverConfig.opusthreshold = 0;
+    }
+    if (typeof serverConfig.channelnestinglimit === 'undefined') {
+        serverConfig.channelnestinglimit = 10;
+    }
+    if (typeof serverConfig.channelcountlimit === 'undefined') {
+        serverConfig.channelcountlimit = 1000;
+    }
+    if (typeof serverConfig.certrequired === 'undefined') {
+        serverConfig.certrequired = false;
+    }
 
     const channelNameValidator = buildChannelNameValidator(serverConfig.channelname);
+    const usernameValidator = buildUsernameValidator(serverConfig.username);
     const listenHost =
         serverConfig.host || serverConfig.bindhost || serverConfig.bindip || serverConfig.ip || undefined;
 
@@ -1003,7 +1057,11 @@ async function startServer(server_id) {
     await loadChannelLinks(server_id, channels);
     const aclState = await loadAclState(server_id);
 
-    const Users = new User(log);
+    const Users = new User(log, {
+        maxUsers: serverConfig.users,
+        serverPassword: serverConfig.serverpassword,
+        usernameValidator
+    });
     const connectionsBySession = new Map();
     const contextActions = new Map();
     const udpAddrToConnection = new Map();
@@ -1869,9 +1927,9 @@ async function startServer(server_id) {
     }
 
     const options = {
-        key: serverConfig.key,
-        cert: serverConfig.certificate,
-        requestCert: serverConfig.certrequired,
+        key: serverConfig.sslKey,
+        cert: serverConfig.sslCert,
+        requestCert: true,
         rejectUnauthorized: false
     };
 
@@ -2772,13 +2830,15 @@ async function startServer(server_id) {
         }
         connection.on('userState', handleUserState);
 
-        connection.sendMessage('Version', {
-            version: util.encodeVersion(1, 2, 4),
-            release: `1.2.4-0.1${os.platform()}`,
-            os: os.platform(),
-            osVersion: os.release(),
-            cryptoModes: CryptState.supportedModes()
-        });
+        if (serverConfig.sendversion !== false) {
+            connection.sendMessage('Version', {
+                version: util.encodeVersion(1, 2, 4),
+                release: `1.2.4-0.1${os.platform()}`,
+                os: os.platform(),
+                osVersion: os.release(),
+                cryptoModes: CryptState.supportedModes()
+            });
+        }
         connection.state = 'version-sent';
 
         connection.on('authenticate', async m => {
@@ -2788,6 +2848,15 @@ async function startServer(server_id) {
                 peerCertificate && typeof peerCertificate.fingerprint === 'string'
                     ? peerCertificate.fingerprint.replace(/:/g, '').toLowerCase()
                     : null;
+
+            if (serverConfig.certrequired && !certificateHash) {
+                connection.sendMessage('Reject', {
+                    type: 7,
+                    reason: 'No certificate'
+                });
+                connection.disconnect();
+                return;
+            }
 
             const authResult = await Users.addUser({
                 name: m.username,
@@ -2853,20 +2922,20 @@ async function startServer(server_id) {
                 );
             });
 
-            connection.sendMessage('ServerSync', {
-                session: Users.getUser(uid).session,
-                maxBandwidth: serverConfig.bandwidth,
-                welcomeText: serverConfig.welcometext,
-                permissions: computePermissions(0, Users.getUser(uid), channels, aclState)
-            });
+                connection.sendMessage('ServerSync', {
+                    session: Users.getUser(uid).session,
+                    maxBandwidth: serverConfig.bandwidth,
+                    welcomeText: serverConfig.welcometext,
+                    permissions: computePermissions(0, Users.getUser(uid), channels, aclState)
+                });
 
-            connection.sendMessage('ServerConfig', {
-                maxBandwidth: null,
-                welcomeText: null,
-                allowHtml: true,
-                messageLength: serverConfig.textmessagelength,
-                imageMessageLength: 1131072
-            });
+                connection.sendMessage('ServerConfig', {
+                    maxBandwidth: null,
+                    welcomeText: null,
+                    allowHtml: Boolean(serverConfig.allowhtml),
+                    messageLength: serverConfig.textmessagelength,
+                    imageMessageLength: serverConfig.imagemessagelength
+                });
 
             const codecChanged = updateCodecVersions(connection);
             if (!codecChanged) {
@@ -3035,7 +3104,7 @@ async function startServer(server_id) {
         log.info(
             {
                 serverId: server_id,
-                serverName: serverConfig.registername || null,
+                serverName: serverConfig.registerName || null,
                 protocol: 'tcp',
                 address: typeof address === 'object' && address ? address.address : listenHost || '0.0.0.0',
                 port: typeof address === 'object' && address ? address.port : serverConfig.port
@@ -3052,9 +3121,19 @@ async function startServer(server_id) {
 
     serverUdp.on('message', (message, rinfo) => {
         if (message.length === 12) {
+            if (serverConfig.allowping === false) {
+                return;
+            }
+
             const q = BufferPack.unpack('>id', message, 0);
 
-            const buffer = BufferPack.pack('>idiii', [0x00010204, q[1], Object.keys(Users.users).length, 5, 128000]);
+            const buffer = BufferPack.pack('>idiii', [
+                0x00010204,
+                q[1],
+                Object.keys(Users.users).length,
+                5,
+                Number(serverConfig.bandwidth || 0)
+            ]);
 
             serverUdp.send(buffer, 0, buffer.length, rinfo.port, rinfo.address, err => {
                 if (err) {
@@ -3128,7 +3207,7 @@ async function startServer(server_id) {
         log.info(
             {
                 serverId: server_id,
-                serverName: serverConfig.registername || null,
+                serverName: serverConfig.registerName || null,
                 protocol: 'udp',
                 address: typeof address === 'object' && address ? address.address : listenHost || '0.0.0.0',
                 port: typeof address === 'object' && address ? address.port : serverConfig.port
