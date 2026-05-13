@@ -2892,7 +2892,7 @@ async function startServer(server_id) {
         connection.state = 'version-sent';
 
         connection.on('authenticate', async m => {
-            if (connection.state !== 'version-sent') {
+            if (!['version-sent', 'version-received'].includes(connection.state)) {
                 return;
             }
 
