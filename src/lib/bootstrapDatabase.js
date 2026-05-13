@@ -23,83 +23,109 @@ const SCHEMA_STATEMENTS = [
     )`,
     `CREATE TABLE IF NOT EXISTS config (
         server_id INTEGER NOT NULL,
-        key TEXT,
-        value TEXT
+        key TEXT NOT NULL,
+        value TEXT,
+        PRIMARY KEY (server_id, key)
     )`,
     `CREATE TABLE IF NOT EXISTS channels (
         server_id INTEGER NOT NULL,
         channel_id INTEGER NOT NULL,
         parent_id INTEGER,
-        name TEXT,
-        inheritacl INTEGER,
-        temporary INTEGER
+        name TEXT NOT NULL,
+        inheritacl INTEGER NOT NULL DEFAULT 0,
+        temporary INTEGER NOT NULL DEFAULT 0,
+        PRIMARY KEY (server_id, channel_id)
     )`,
     `CREATE TABLE IF NOT EXISTS channel_info (
         server_id INTEGER NOT NULL,
         channel_id INTEGER NOT NULL,
-        key INTEGER,
-        value TEXT
+        key INTEGER NOT NULL,
+        value TEXT,
+        PRIMARY KEY (server_id, channel_id, key)
     )`,
     `CREATE TABLE IF NOT EXISTS acl (
         server_id INTEGER NOT NULL,
         channel_id INTEGER NOT NULL,
-        priority INTEGER,
+        priority INTEGER NOT NULL,
         user_id INTEGER,
         group_name TEXT,
-        apply_here INTEGER,
-        apply_sub INTEGER,
-        grantpriv INTEGER,
-        revokepriv INTEGER
+        apply_here INTEGER NOT NULL DEFAULT 0,
+        apply_sub INTEGER NOT NULL DEFAULT 0,
+        grantpriv INTEGER NOT NULL DEFAULT 0,
+        revokepriv INTEGER NOT NULL DEFAULT 0,
+        PRIMARY KEY (server_id, channel_id, priority)
     )`,
     `CREATE TABLE IF NOT EXISTS "groups" (
         group_id INTEGER PRIMARY KEY AUTOINCREMENT,
         server_id INTEGER NOT NULL,
-        name TEXT,
+        name TEXT NOT NULL,
         channel_id INTEGER NOT NULL,
-        inherit INTEGER,
-        inheritable INTEGER
+        inherit INTEGER NOT NULL DEFAULT 0,
+        inheritable INTEGER NOT NULL DEFAULT 0
     )`,
     `CREATE TABLE IF NOT EXISTS group_members (
         group_id INTEGER NOT NULL,
         server_id INTEGER NOT NULL,
         user_id INTEGER NOT NULL,
-        addit INTEGER
+        addit INTEGER NOT NULL DEFAULT 1,
+        PRIMARY KEY (group_id, server_id, user_id, addit)
     )`,
     `CREATE TABLE IF NOT EXISTS users (
         server_id INTEGER NOT NULL,
         user_id INTEGER NOT NULL,
         name TEXT NOT NULL,
         pw TEXT,
-        lastchannel INTEGER,
+        lastchannel INTEGER NOT NULL DEFAULT 0,
         texture BLOB,
-        last_active DATE
+        last_active DATE,
+        PRIMARY KEY (server_id, user_id)
     )`,
     `CREATE TABLE IF NOT EXISTS user_info (
         server_id INTEGER NOT NULL,
         user_id INTEGER NOT NULL,
-        key INTEGER,
-        value TEXT
+        key INTEGER NOT NULL,
+        value TEXT,
+        PRIMARY KEY (server_id, user_id, key)
     )`,
     `CREATE TABLE IF NOT EXISTS bans (
         server_id INTEGER NOT NULL,
         base BLOB,
-        mask INTEGER,
+        mask INTEGER NOT NULL,
         name TEXT,
         hash TEXT,
         reason TEXT,
         start DATE,
-        duration INTEGER
+        duration INTEGER NOT NULL DEFAULT 0
     )`,
     `CREATE TABLE IF NOT EXISTS channel_links (
         server_id INTEGER NOT NULL,
         channel_id INTEGER NOT NULL,
-        link_id INTEGER NOT NULL
+        link_id INTEGER NOT NULL,
+        PRIMARY KEY (server_id, channel_id, link_id)
     )`,
     `CREATE TABLE IF NOT EXISTS slog (
         server_id INTEGER NOT NULL,
         msg TEXT,
         msgtime DATE
-    )`
+    )`,
+    `CREATE INDEX IF NOT EXISTS idx_channels_parent
+     ON channels (server_id, parent_id)`,
+    `CREATE INDEX IF NOT EXISTS idx_channel_info_channel
+     ON channel_info (server_id, channel_id)`,
+    `CREATE INDEX IF NOT EXISTS idx_acl_channel
+     ON acl (server_id, channel_id, priority)`,
+    `CREATE INDEX IF NOT EXISTS idx_groups_channel
+     ON "groups" (server_id, channel_id)`,
+    `CREATE INDEX IF NOT EXISTS idx_group_members_group
+     ON group_members (group_id)`,
+    `CREATE INDEX IF NOT EXISTS idx_users_name
+     ON users (server_id, name)`,
+    `CREATE INDEX IF NOT EXISTS idx_user_info_user
+     ON user_info (server_id, user_id)`,
+    `CREATE INDEX IF NOT EXISTS idx_channel_links_channel
+     ON channel_links (server_id, channel_id)`,
+    `CREATE INDEX IF NOT EXISTS idx_bans_server_start
+     ON bans (server_id, start)`
 ];
 
 function resolvePath(relativePath) {
@@ -143,6 +169,43 @@ async function tableRowCount(tableName) {
     return Number(rows?.[0]?.count || 0);
 }
 
+async function hasOfficialBootstrap(serverId) {
+    const [rows] = await sequelize.query(
+        `SELECT COUNT(*) AS count
+         FROM config
+         WHERE server_id = ${Number(serverId)}
+           AND key IN ('sslCert', 'sslKey')`
+    );
+
+    return Number(rows?.[0]?.count || 0) >= 2;
+}
+
+async function resetBootstrapData() {
+    await sequelize.transaction(async transaction => {
+        const tables = [
+            'channel_links',
+            'bans',
+            'user_info',
+            'users',
+            'group_members',
+            '"groups"',
+            'acl',
+            'channel_info',
+            'channels',
+            'config',
+            'slog',
+            'servers',
+            'meta'
+        ];
+
+        for (const table of tables) {
+            await sequelize.query(`DELETE FROM ${table}`, { transaction });
+        }
+
+        await sequelize.query(`DELETE FROM sqlite_sequence WHERE name = 'groups'`, { transaction });
+    });
+}
+
 async function loadServerCertConfig(serverId) {
     const [rows] = await sequelize.query(
         `SELECT key, value
@@ -175,7 +238,7 @@ async function storeServerCertConfig(serverId, certPath, keyPath) {
     );
 }
 
-async function ensureSelfRegisterAcl(serverId) {
+async function ensureSelfRegisterAcl(serverId, transaction) {
     await sequelize.query(
         `UPDATE acl
          SET grantpriv = COALESCE(grantpriv, 0) | ${Number(524288)}
@@ -184,16 +247,19 @@ async function ensureSelfRegisterAcl(serverId) {
            AND group_name = 'auth'
            AND apply_here = 1
            AND apply_sub = 1`
+        ,
+        { transaction }
     );
 }
 
-async function ensureSuperUser(serverId) {
+async function ensureSuperUser(serverId, transaction) {
     const [rows] = await sequelize.query(
         `SELECT server_id, user_id, name, pw, lastchannel, texture, last_active
          FROM users
          WHERE server_id = ${Number(serverId)}
-           AND user_id = 0
-         LIMIT 1`
+          AND user_id = 0
+         LIMIT 1`,
+        { transaction }
     );
 
     const existingUser = rows?.[0] || null;
@@ -204,6 +270,8 @@ async function ensureSuperUser(serverId) {
                  SET name = 'SuperUser'
                  WHERE server_id = ${Number(serverId)}
                    AND user_id = 0`
+                ,
+                { transaction }
             );
         }
 
@@ -224,13 +292,16 @@ async function ensureSuperUser(serverId) {
                  lastchannel = ${sequelize.escape(lastChannel)}
              WHERE server_id = ${Number(serverId)}
                AND user_id = 0`
+            ,
+            { transaction }
         );
     } else {
         await sequelize.query(
             `INSERT INTO users (server_id, user_id, name, pw, lastchannel, texture, last_active)
              VALUES (${Number(serverId)}, 0, 'SuperUser', ${sequelize.escape(pwHash)}, ${sequelize.escape(
                  lastChannel
-             )}, NULL, CURRENT_TIMESTAMP)`
+             )}, NULL, CURRENT_TIMESTAMP)`,
+            { transaction }
         );
     }
 
@@ -331,24 +402,6 @@ async function seedDatabase() {
         );
     }
 
-    await sequelize.query('INSERT INTO servers (server_id) VALUES (1)');
-    await sequelize.query("INSERT INTO meta (keystring, value) VALUES ('version', '5')");
-    await sequelize.query(
-        `INSERT INTO channels (server_id, channel_id, parent_id, name, inheritacl) VALUES
-            (1, 0, NULL, 'Root', 0),
-            (1, 30, 0, 'AFK', 1)`
-    );
-    await sequelize.query(
-        `INSERT INTO "groups" (server_id, name, channel_id, inherit, inheritable) VALUES
-            (1, 'admin', 0, 1, 1)`
-    );
-    await sequelize.query(
-        `INSERT INTO acl (server_id, channel_id, priority, user_id, group_name, apply_here, apply_sub, grantpriv, revokepriv) VALUES
-            (1, 0, 1, NULL, 'admin', 1, 1, 1, NULL),
-            (1, 0, 2, NULL, 'auth', 1, 1, 1024, NULL),
-            (1, 0, 3, NULL, 'all', 1, 0, 524288, NULL)`
-    );
-    await ensureSelfRegisterAcl(1);
     const defaultConfig = {
         allowhtml: true,
         allowping: true,
@@ -358,28 +411,66 @@ async function seedDatabase() {
         channelname: DEFAULT_CHANNEL_NAME_PATTERN,
         channelnestinglimit: 10,
         defaultchannel: 0,
+        ice: '',
+        icesecretread: '',
+        icesecretwrite: '',
         imagemessagelength: 1048576,
         opusthreshold: 0,
+        obfuscate: false,
+        registerHostname: '',
+        registerLocation: '',
+        registerName: '',
+        registerPassword: '',
+        registerUrl: '',
         rememberchannel: true,
         rememberchannelduration: 0,
+        serverpassword: '',
         sendversion: true,
         sslCert: DEFAULT_CERT_PATH,
         sslKey: DEFAULT_KEY_PATH,
         textmessagelength: 5000,
         timeout: 30,
+        uname: '',
         username: DEFAULT_USERNAME_PATTERN,
         users: 100,
         usersperchannel: 0,
         welcometext: DEFAULT_WELCOME_TEXT
     };
 
-    const configRows = Object.entries(defaultConfig).map(
-        ([key, value]) => `(1, ${sequelize.escape(key)}, ${sequelize.escape(String(value))})`
-    );
+    return sequelize.transaction(async transaction => {
+        await sequelize.query('INSERT INTO servers (server_id) VALUES (1)', { transaction });
+        await sequelize.query("INSERT INTO meta (keystring, value) VALUES ('version', '5')", { transaction });
+        await sequelize.query(
+            `INSERT INTO channels (server_id, channel_id, parent_id, name, inheritacl) VALUES
+                (1, 0, NULL, 'Root', 0),
+                (1, 30, 0, 'AFK', 1)`,
+            { transaction }
+        );
+        await sequelize.query(
+            `INSERT INTO "groups" (server_id, name, channel_id, inherit, inheritable) VALUES
+                (1, 'admin', 0, 1, 1)`,
+            { transaction }
+        );
+        await sequelize.query(
+            `INSERT INTO acl (server_id, channel_id, priority, user_id, group_name, apply_here, apply_sub, grantpriv, revokepriv) VALUES
+                (1, 0, 1, NULL, 'admin', 1, 1, 1, 0),
+                (1, 0, 2, NULL, 'auth', 1, 1, 1024, 0),
+                (1, 0, 3, NULL, 'all', 1, 0, 524288, 0)`,
+            { transaction }
+        );
+        await ensureSelfRegisterAcl(1, transaction);
 
-    await sequelize.query(`INSERT INTO config (server_id, key, value) VALUES ${configRows.join(',\n            ')}`);
+        const configRows = Object.entries(defaultConfig).map(
+            ([key, value]) => `(1, ${sequelize.escape(key)}, ${sequelize.escape(String(value))})`
+        );
 
-    return ensureSuperUser(1);
+        await sequelize.query(
+            `INSERT INTO config (server_id, key, value) VALUES ${configRows.join(',\n            ')}`,
+            { transaction }
+        );
+
+        return ensureSuperUser(1, transaction);
+    });
 }
 
 export async function ensureDatabaseReady() {
@@ -387,6 +478,16 @@ export async function ensureDatabaseReady() {
     await ensureChannelsTemporaryColumn();
 
     if (await tableRowCount('servers')) {
+        if (!(await hasOfficialBootstrap(1))) {
+            await resetBootstrapData();
+            const superUser = await seedDatabase();
+
+            return {
+                bootstrapped: true,
+                superUserPassword: superUser.password
+            };
+        }
+
         await normalizeExistingServerCertificates(1);
         await normalizeChannelDescriptionBlobs(1);
         await ensureSelfRegisterAcl(1);

@@ -10,7 +10,8 @@ const Config = sequelize.define(
             autoIncrement: false
         },
         key: {
-            type: DataTypes.TEXT
+            type: DataTypes.TEXT,
+            primaryKey: true
         },
         value: {
             type: DataTypes.TEXT

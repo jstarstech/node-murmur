@@ -10,7 +10,8 @@ const Channels = sequelize.define(
             autoIncrement: false
         },
         channel_id: {
-            type: DataTypes.INTEGER
+            type: DataTypes.INTEGER,
+            primaryKey: true
         },
         parent_id: {
             type: DataTypes.INTEGER

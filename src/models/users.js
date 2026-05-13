@@ -10,7 +10,8 @@ const Users = sequelize.define(
             autoIncrement: false
         },
         user_id: {
-            type: DataTypes.INTEGER
+            type: DataTypes.INTEGER,
+            primaryKey: true
         },
         name: {
             type: DataTypes.TEXT
