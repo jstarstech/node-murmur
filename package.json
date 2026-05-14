@@ -16,7 +16,7 @@
   "dependencies": {
     "bufferpack": "0.0.6",
     "pino": "^10.3.1",
-    "protobufjs": "^8.2.0",
+    "protobufjs": "^8.3.0",
     "sequelize": "^6.37.8",
     "sqlite3": "^6.0.1",
     "tweetnacl": "^1.0.3",
