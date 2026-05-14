@@ -69,7 +69,7 @@ class User extends EventEmitter {
             textureHash: Buffer.alloc(0),
             commentHash: Buffer.alloc(0),
             hash: '',
-            comment: '',
+            comment: null,
             pluginIdentity: '',
             pluginContext: [],
             texture: Buffer.alloc(0)

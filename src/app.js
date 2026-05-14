@@ -299,8 +299,10 @@ function buildUserStatePayload(
         }
     }
 
-    if (user.comment) {
-        if (supportsBlobs) {
+    if (user.comment !== null && user.comment !== undefined) {
+        if (user.comment.length === 0) {
+            payload.comment = '';
+        } else if (supportsBlobs) {
             payload.comment = user.comment;
         } else if (user.commentHash && user.commentHash.length > 0) {
             payload.commentHash = user.commentHash;
@@ -2503,13 +2505,13 @@ async function startServer(server_id) {
             const requestedComments = Array.isArray(m.sessionComment) ? m.sessionComment : [];
             for (const session of requestedComments) {
                 const target = findUserBySession(Number(session));
-                if (!target || !target.comment) {
+                if (!target || target.comment === null || target.comment === undefined) {
                     continue;
                 }
 
                 connection.sendMessage('UserState', {
                     session: target.session,
-                    comment: target.comment
+                    comment: target.comment.length === 0 ? '' : target.comment
                 });
             }
 
@@ -3013,7 +3015,6 @@ async function startServer(server_id) {
 
             ready = true;
             connection.state = 'ready';
-
         });
 
         connection.on('channelRemove', async ({ channelId }) => {
