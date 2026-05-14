@@ -10,6 +10,13 @@ if (process.env.DB_STORAGE) {
     config.storage = process.env.DB_STORAGE;
 }
 
+if (config.dialect === 'sqlite') {
+    config.pool = {
+        ...(config.pool || {}),
+        max: 1
+    };
+}
+
 const sequelize = config.url
     ? new Sequelize(config.url, config)
     : new Sequelize(config.database, config.username, config.password, config);

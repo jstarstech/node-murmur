@@ -1,3 +1,4 @@
+import { Transaction } from 'sequelize';
 import { sequelize } from '../models/index.js';
 
 export const PERMISSIONS = Object.freeze({
@@ -567,7 +568,7 @@ export async function saveAclState(serverId, channelId, payload) {
     const serverIdNum = Number(serverId);
     const targetChannelId = Number(channelId);
 
-    await sequelize.transaction(async transaction => {
+    await sequelize.transaction({ type: Transaction.TYPES.IMMEDIATE }, async transaction => {
         const [maxRows] = await sequelize.query(
             `SELECT COALESCE(MAX(group_id), 0) AS max_group_id
              FROM "groups"

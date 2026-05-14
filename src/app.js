@@ -96,8 +96,6 @@ async function getChannels(server_id) {
             position: '0',
             links: new Set()
         };
-    } else if (!(channels[0].links instanceof Set)) {
-        channels[0].links = new Set();
     }
 
     for (const channel of Object.values(channels)) {
@@ -1600,12 +1598,6 @@ async function startServer(server_id) {
             throw new Error('Invalid channel');
         }
 
-        if (currentChannel.channel_id === 0 && nameProvided) {
-            const error = new Error('Root channel cannot be renamed');
-            error.code = 'root_rename';
-            throw error;
-        }
-
         if (nameProvided && (targetName === null || !channelNameValidator.test(targetName))) {
             throw new Error('Invalid channel name');
         }
@@ -1647,16 +1639,18 @@ async function startServer(server_id) {
             }
         }
 
-        const nextParentId = targetParentId !== null ? targetParentId : Number(currentChannel.parent_id);
-        const parentChanged = targetParentId !== null && Number(targetParentId) !== Number(currentChannel.parent_id);
+        const currentParentId =
+            currentChannel.parent_id === null || currentChannel.parent_id === undefined
+                ? null
+                : Number(currentChannel.parent_id);
+        const normalizeParentId = value => (value === null || value === undefined ? null : Number(value));
+        const nextParentId = targetParentId !== null ? targetParentId : currentParentId;
+        const parentChanged = targetParentId !== null && Number(targetParentId) !== Number(currentParentId);
         const nextName = nameProvided ? targetName : currentChannel.name;
         const nextTemporary = Boolean(currentChannel.temporary);
 
-        if (targetParentId !== null && !parentChanged) {
-            return;
-        }
-
-        const parentChannel = channels[nextParentId];
+        const parentChannel =
+            nextParentId === null || nextParentId === undefined ? null : channels[Number(nextParentId)];
         if (parentChanged) {
             if (!parentChannel) {
                 throw new Error('Invalid parent channel');
@@ -1690,7 +1684,7 @@ async function startServer(server_id) {
         const siblingExists = Object.values(channels).some(channel => {
             return (
                 Number(channel.channel_id) !== requestedChannelId &&
-                Number(channel.parent_id) === nextParentId &&
+                normalizeParentId(channel.parent_id) === nextParentId &&
                 typeof channel.name === 'string' &&
                 channel.name === nextName
             );
@@ -1702,9 +1696,10 @@ async function startServer(server_id) {
         }
 
         const updatedChannel = await sequelize.transaction(async transaction => {
+            const parentIdSql = nextParentId === null || nextParentId === undefined ? 'NULL' : Number(nextParentId);
             await sequelize.query(
                 `UPDATE channels
-                 SET parent_id = ${Number(nextParentId)},
+                 SET parent_id = ${parentIdSql},
                      name = ${sequelize.escape(nextName)},
                      temporary = ${nextTemporary ? 1 : 0}
                  WHERE server_id = ${Number(server_id)}
@@ -3086,7 +3081,7 @@ async function startServer(server_id) {
                     return;
                 }
 
-                if (err.code === 'channel_name' || err.code === 'root_rename') {
+                if (err.code === 'channel_name') {
                     connection.sendMessage('PermissionDenied', {
                         type: 3,
                         session: user.session,
