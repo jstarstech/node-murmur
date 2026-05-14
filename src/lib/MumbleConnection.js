@@ -1,10 +1,8 @@
 import { EventEmitter } from 'events';
 import MumbleSocket from './MumbleSocket.js';
 import Messages from './MumbleMessageMap.js';
-import * as util from './util.js';
+import { toEventName, trace as TRACE, dir as DIR } from './util.js';
 import { rebuildVoicePacket } from './voice.js';
-const DIR = util.dir;
-const TRACE = util.trace;
 
 /**
  * Mumble connection
@@ -13,28 +11,21 @@ const TRACE = util.trace;
  * @param Users Users
  **/
 class MumbleConnection extends EventEmitter {
-    codec = { Celt: 0, Opus: 4 };
-    codecValues = {};
-
     constructor(socket, Users) {
         super();
 
-        Object.keys(this.codec).forEach(k => {
-            this.codecValues[this.codec[k]] = k;
-        });
-
-        let self = this;
         this.socket = new MumbleSocket(socket);
         this.Users = Users;
         this.state = 'connected';
 
-        socket.on('close', this.disconnect.bind(this));
+        socket.on('close', () => {
+            this.disconnect();
+        });
         socket.on('error', err => {
-            self.emit('error', err);
+            this.emit('error', err);
         });
 
-        // Start queueing for a message prefix.
-        this._waitForPrefix(this);
+        this._readLoop();
     }
 
     /**
@@ -65,8 +56,8 @@ class MumbleConnection extends EventEmitter {
             packet = Messages.buildPacket(type, data);
         }
 
-        // Create the prefix.
-        let prefix = Buffer.alloc(6);
+        // Create the packet prefix.
+        const prefix = Buffer.allocUnsafe(6);
         prefix.writeUInt16BE(Messages.idByName[type], 0);
         prefix.writeUInt32BE(packet.length, 2);
 
@@ -80,7 +71,10 @@ class MumbleConnection extends EventEmitter {
      * Disconnects the client from Mumble
      */
     disconnect() {
-        //clearInterval( this.pingInterval );
+        if (this.state === 'dead') {
+            return;
+        }
+
         this.state = 'dead';
         this.emit('disconnect');
         this.socket.end();
@@ -114,23 +108,29 @@ class MumbleConnection extends EventEmitter {
      * @param msg Message
      **/
     _processMessage(type, msg) {
-        // Check whether we have a handler for this or not.
-        if (!this[`_on${Messages.nameById[type]}`]) {
-            TRACE(`Unhandled message:${Messages.nameById[type]}`);
-            TRACE(Messages.nameById[type]);
+        const messageName = Messages.nameById[type];
+        if (!messageName) {
+            TRACE(`Unhandled message type: ${type}`);
             TRACE(msg);
-        } else {
-            // Handler found -> delegate.
-            this[`_on${Messages.nameById[type]}`](msg);
+            return;
         }
 
-        let handlerName = Messages.nameById[type];
-        handlerName = handlerName.replace(/^([A-Z]+)(?=([A-Z]?[a-z])|$)/g, (match, $1) => $1.toLowerCase());
+        const handler = this[`_on${messageName}`];
+
+        if (!handler) {
+            TRACE(`Unhandled message:${messageName}`);
+            TRACE(messageName);
+            TRACE(msg);
+        } else {
+            handler.call(this, msg);
+        }
+
+        const handlerName = toEventName(messageName);
 
         this.emit(handlerName, msg);
         this.emit('protocol-in', {
             handler: handlerName,
-            type: Messages.nameById[type],
+            type: messageName,
             message: msg
         });
     }
@@ -159,26 +159,38 @@ class MumbleConnection extends EventEmitter {
     }
 
     /**
-     * Wait for a prefix on the TCP socket
+     * Read and process framed protocol messages until the socket closes.
      *
      * @private
      **/
-    _waitForPrefix() {
-        let self = this;
+    async _readLoop() {
+        try {
+            while (this.state !== 'dead') {
+                const prefix = await this.socket.read(6);
 
-        // Read 6 byte prefix.
-        this.socket.read(6, data => {
-            let type = data.readUInt16BE(0);
-            let length = data.readUInt32BE(2);
+                if (this.state === 'dead') {
+                    return;
+                }
 
-            // Read the rest of the message based on the length prefix.
-            self.socket.read(length, data => {
-                self._processData(type, data);
+                const type = prefix.readUInt16BE(0);
+                const length = prefix.readUInt32BE(2);
+                const data = length > 0 ? await this.socket.read(length) : Buffer.alloc(0);
 
-                // Wait for the next message.
-                self._waitForPrefix();
-            });
-        });
+                if (this.state === 'dead') {
+                    return;
+                }
+
+                this._processData(type, data);
+            }
+        } catch (err) {
+            if (this.state !== 'dead') {
+                this.emit('error', err);
+            }
+        } finally {
+            if (this.state !== 'dead') {
+                this.disconnect();
+            }
+        }
     }
 }
 export default MumbleConnection;

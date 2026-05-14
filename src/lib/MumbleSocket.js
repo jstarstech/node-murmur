@@ -11,21 +11,25 @@
  */
 class MumbleSocket {
     constructor(socket) {
-        let self = this;
         this.buffers = [];
         this.readers = [];
         this.length = 0;
         this.socket = socket;
+        this.closed = false;
+        this.closeError = null;
 
         // Register the data callback to receive data from Mumble server.
         socket.on('data', data => {
-            self.receiveData(data);
+            this.receiveData(data);
         });
         socket.on('end', () => {
-            self.end();
+            this.close();
         });
         socket.on('timeout', () => {
-            self.end();
+            this.close(new Error('Socket timed out'));
+        });
+        socket.on('error', err => {
+            this.close(err);
         });
     }
 
@@ -35,29 +39,37 @@ class MumbleSocket {
      * @param {Buffer} data Incoming data buffer
      */
     receiveData(data) {
+        if (this.closed) {
+            return;
+        }
+
         // Insert the data into the buffer queue.
         this.buffers.push(data);
         this.length += data.length;
 
-        // Check buffer status to see if we got enough data for the next reader.
-        this._checkReader();
+        // Drain every reader that can be satisfied by the buffered data.
+        this._drainReaders();
     }
 
     /**
-     * Queue a reader callback for incoming data.
+     * Queue a reader for incoming data.
      *
-     * @param {number} length The amount of data this callback expects
-     * @param {function} callback The data callback
+     * @param {number} length The amount of data this reader expects
+     * @returns {Promise<Buffer>} The requested data buffer
      */
-    read(length, callback) {
-        // Push the reader to the queue
-        this.readers.push({ length, callback });
-
-        // If the reader queue was empty there's a chance there is pending
-        // data so check the buffer state.
-        if (this.readers.length === 1) {
-            this._checkReader();
+    read(length) {
+        if (!Number.isInteger(length) || length < 0) {
+            return Promise.reject(new TypeError(`Invalid read length: ${length}`));
         }
+
+        if (this.closed) {
+            return Promise.reject(this.closeError || new Error('Socket is closed'));
+        }
+
+        return new Promise((resolve, reject) => {
+            this.readers.push({ length, resolve, reject });
+            this._drainReaders();
+        });
     }
 
     /**
@@ -80,62 +92,73 @@ class MumbleSocket {
     }
 
     /**
-     * Check whether there's enough data to satisfy the current reader callback
+     * Close the socket wrapper and fail any pending reads.
+     *
+     * @private
+     *
+     * @param {Error} [error] Close reason
+     */
+    close(error = null) {
+        if (this.closed) {
+            return;
+        }
+
+        this.closed = true;
+        this.closeError = error instanceof Error ? error : new Error('Socket is closed');
+
+        while (this.readers.length > 0) {
+            const reader = this.readers.shift();
+            reader.reject(this.closeError);
+        }
+
+        this.buffers.length = 0;
+        this.length = 0;
+    }
+
+    /**
+     * Check whether there's enough data to satisfy queued readers.
      *
      * @private
      */
-    _checkReader() {
-        // If there are no readers we'll wait for more.
-        if (this.readers.length === 0) {
-            return;
-        }
+    _drainReaders() {
+        while (!this.closed && this.readers.length > 0) {
+            const reader = this.readers[0];
 
-        // If there's fewer data than the foremost reader requires, wait for more.
-        let reader = this.readers[0];
-        if (this.length < reader.length) {
-            return;
-        }
-
-        // Allocate the buffer for the reader.
-        let buffer = Buffer.alloc(reader.length);
-        let written = 0;
-
-        // Gather the buffer contents from the queued data fragments.
-        while (written < reader.length) {
-            // Take the first unprocessed fragment.
-            let received = this.buffers[0];
-
-            // Calculate the amount of data missing from the reader buffer.
-            let remaining = reader.length - written;
-
-            if (received.length <= remaining) {
-                // Write the current fragment in whole to the output buffer if
-                // it is smaller than or equal in size to the data we require.
-                received.copy(buffer, written);
-                written += received.length;
-
-                // We wrote the whole buffer. Remove it from the socket.
-                this.buffers.splice(0, 1);
-                this.length -= received.length;
-            } else {
-                // The current fragment is larger than what the reader requires.
-                // Write only part of it to the buffer.
-                received.copy(buffer, written, 0, remaining);
-                written += remaining;
-
-                // Slice the written part off the fragment.
-                this.buffers[0] = received.slice(remaining);
-                this.length -= remaining;
+            if (this.length < reader.length) {
+                return;
             }
+
+            if (reader.length === 0) {
+                this.readers.shift();
+                reader.resolve(Buffer.alloc(0));
+                continue;
+            }
+
+            // Allocate the buffer for the reader.
+            const buffer = Buffer.alloc(reader.length);
+            let written = 0;
+
+            // Gather the buffered fragments into the output buffer.
+            while (written < reader.length) {
+                const received = this.buffers[0];
+                const remaining = reader.length - written;
+
+                if (received.length <= remaining) {
+                    received.copy(buffer, written);
+                    written += received.length;
+                    this.buffers.shift();
+                    this.length -= received.length;
+                } else {
+                    received.copy(buffer, written, 0, remaining);
+                    this.buffers[0] = received.slice(remaining);
+                    this.length -= remaining;
+                    written += remaining;
+                }
+            }
+
+            this.readers.shift();
+            reader.resolve(buffer);
         }
-
-        // Remove the current reader and perform the callback.
-        this.readers.splice(0, 1);
-        reader.callback(buffer);
-
-        // TODO: Should we recurse into _checkReader in case there's a second
-        // reader queued and we still got enough data for it?
-        // Probably not. Queueing multiple readers is bad anyway.
     }
 }
 
