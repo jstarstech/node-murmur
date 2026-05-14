@@ -1,6 +1,21 @@
 {
   "verbose": true,
   "restartable": "rs",
-  "ignore": [".git", "node_modules/", "db/", "ssl/", "logs/"],
+  "watch": [
+    "src",
+    "mumble-server.ini",
+    "package.json",
+    "nodemon.json"
+  ],
+  "ignore": [
+    ".git",
+    "node_modules/",
+    "ssl/",
+    "logs/",
+    "mumble-server.sqlite",
+    "*.sqlite-journal",
+    "*.sqlite-shm",
+    "*.sqlite-wal"
+  ],
   "ext": "js,json"
 }
