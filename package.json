@@ -15,6 +15,7 @@
   "license": "BSD-2-Clause",
   "dependencies": {
     "bufferpack": "0.0.6",
+    "ini": "^6.0.0",
     "pino": "^10.3.1",
     "protobufjs": "^8.3.0",
     "sequelize": "^6.37.8",

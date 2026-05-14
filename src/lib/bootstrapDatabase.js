@@ -4,13 +4,11 @@ import { fileURLToPath } from 'url';
 import { sequelize } from '../models/index.js';
 import { generateSelfSignedCert } from './selfSignedCert.js';
 import { createSaltedSha1PasswordHash, generateSuperUserPassword } from './passwordHash.js';
+import { loadServerConfig } from './serverConfig.js';
 
 const ROOT_DIR = path.dirname(fileURLToPath(new URL('../../package.json', import.meta.url)));
 const DEFAULT_CERT_PATH = './ssl/server.cert';
 const DEFAULT_KEY_PATH = './ssl/server.key';
-const DEFAULT_CHANNEL_NAME_PATTERN = '[ \\/\\-=\\w#\\[\\]\\{\\}\\(\\)@\\|\\.]+';
-const DEFAULT_USERNAME_PATTERN = '[-=\\w\\[\\]\\{\\}\\(\\)@\\|\\.]+';
-const DEFAULT_WELCOME_TEXT = 'Welcome to this server running Mumble.\nEnjoy your stay!';
 
 const SCHEMA_STATEMENTS = [
     `CREATE TABLE IF NOT EXISTS servers (
@@ -233,6 +231,24 @@ async function storeServerCertConfig(serverId, certPath, keyPath) {
     );
 }
 
+async function syncConfigRows(serverId, config, transaction) {
+    const rows = Object.entries(config).map(([key, value]) => ({
+        server_id: Number(serverId),
+        key,
+        value: String(value)
+    }));
+
+    for (const row of rows) {
+        await sequelize.query(
+            `INSERT INTO config (server_id, key, value)
+             VALUES (${sequelize.escape(row.server_id)}, ${sequelize.escape(row.key)}, ${sequelize.escape(row.value)})
+             ON CONFLICT(server_id, key)
+             DO UPDATE SET value = excluded.value`,
+            { transaction }
+        );
+    }
+}
+
 async function ensureSelfRegisterAcl(serverId, transaction) {
     await sequelize.query(
         `UPDATE acl
@@ -343,7 +359,7 @@ async function normalizeExistingServerCertificates(serverId) {
     );
 }
 
-async function seedDatabase() {
+async function seedDatabase(serverConfig) {
     const certAbsPath = resolvePath(DEFAULT_CERT_PATH);
     const keyAbsPath = resolvePath(DEFAULT_KEY_PATH);
 
@@ -357,41 +373,6 @@ async function seedDatabase() {
             'Missing bootstrap TLS material. Expected ssl/server.cert and ssl/server.key to both exist or both be absent.'
         );
     }
-
-    const defaultConfig = {
-        allowhtml: true,
-        allowping: true,
-        bandwidth: 558000,
-        certrequired: false,
-        channelcountlimit: 1000,
-        channelname: DEFAULT_CHANNEL_NAME_PATTERN,
-        channelnestinglimit: 10,
-        defaultchannel: 0,
-        ice: '',
-        icesecretread: '',
-        icesecretwrite: '',
-        imagemessagelength: 1048576,
-        opusthreshold: 0,
-        obfuscate: false,
-        registerHostname: '',
-        registerLocation: '',
-        registerName: '',
-        registerPassword: '',
-        registerUrl: '',
-        rememberchannel: true,
-        rememberchannelduration: 0,
-        serverpassword: '',
-        sendversion: true,
-        sslCert: DEFAULT_CERT_PATH,
-        sslKey: DEFAULT_KEY_PATH,
-        textmessagelength: 5000,
-        timeout: 30,
-        uname: '',
-        username: DEFAULT_USERNAME_PATTERN,
-        users: 100,
-        usersperchannel: 0,
-        welcometext: DEFAULT_WELCOME_TEXT
-    };
 
     return sequelize.transaction(async transaction => {
         await sequelize.query('INSERT INTO servers (server_id) VALUES (1)', { transaction });
@@ -416,47 +397,52 @@ async function seedDatabase() {
         );
         await ensureSelfRegisterAcl(1, transaction);
 
-        const configRows = Object.entries(defaultConfig).map(
-            ([key, value]) => `(1, ${sequelize.escape(key)}, ${sequelize.escape(String(value))})`
-        );
-
-        await sequelize.query(
-            `INSERT INTO config (server_id, key, value) VALUES ${configRows.join(',\n            ')}`,
-            { transaction }
-        );
+        await syncConfigRows(1, serverConfig, transaction);
 
         return ensureSuperUser(1, transaction);
     });
 }
 
 export async function ensureDatabaseReady() {
+    const serverConfigFile = loadServerConfig();
+
     await createSchema();
     await ensureChannelsTemporaryColumn();
 
     if (await tableRowCount('servers')) {
         if (!(await hasOfficialBootstrap(1))) {
             await resetBootstrapData();
-            const superUser = await seedDatabase();
+            const superUser = await seedDatabase(serverConfigFile.config);
 
             return {
                 bootstrapped: true,
+                configPath: serverConfigFile.path,
+                configSource: serverConfigFile.exists ? 'file' : 'defaults',
+                configWarnings: serverConfigFile.warnings,
                 superUserPassword: superUser.password
             };
         }
 
+        await syncConfigRows(1, serverConfigFile.config);
         await normalizeExistingServerCertificates(1);
         await ensureSelfRegisterAcl(1);
         const superUser = await ensureSuperUser(1);
 
         return {
             bootstrapped: false,
+            configPath: serverConfigFile.path,
+            configSource: serverConfigFile.exists ? 'file' : 'defaults',
+            configWarnings: serverConfigFile.warnings,
             superUserPassword: superUser.password
         };
     }
 
-    const superUser = await seedDatabase();
+    const superUser = await seedDatabase(serverConfigFile.config);
     return {
         bootstrapped: true,
+        configPath: serverConfigFile.path,
+        configSource: serverConfigFile.exists ? 'file' : 'defaults',
+        configWarnings: serverConfigFile.warnings,
         superUserPassword: superUser.password
     };
 }

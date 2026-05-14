@@ -1,10 +1,10 @@
 .DS_Store
 node_modules
-/db
 /ssl
 /test
 /logs
 /mumble-server.sqlite
+/mumble-server.ini
 /config/config.json
 /config/default.json
 /config/log4js.json

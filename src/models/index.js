@@ -1,24 +1,13 @@
 import { Sequelize } from 'sequelize';
-import { createRequire } from 'module';
-const require = createRequire(import.meta.url);
-
-const env = process.env.NODE_ENV || 'development';
-const config = require(`../../config/config.json`)[env];
-config.logging = false;
-
-if (process.env.DB_STORAGE) {
-    config.storage = process.env.DB_STORAGE;
-}
-
-if (config.dialect === 'sqlite') {
-    config.pool = {
-        ...(config.pool || {}),
+const sequelizeOptions = {
+    dialect: 'sqlite',
+    logging: false,
+    storage: process.env.DB_STORAGE || './mumble-server.sqlite',
+    pool: {
         max: 1
-    };
-}
+    }
+};
 
-const sequelize = config.url
-    ? new Sequelize(config.url, config)
-    : new Sequelize(config.database, config.username, config.password, config);
+const sequelize = new Sequelize(sequelizeOptions);
 
 export { Sequelize, sequelize };

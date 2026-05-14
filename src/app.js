@@ -27,6 +27,7 @@ import RegisteredUsers from './models/users.js';
 import UserInfo from './models/user_info.js';
 import { sequelize } from './models/index.js';
 import { ensureDatabaseReady, resolveConfigFileValue } from './lib/bootstrapDatabase.js';
+import { DEFAULT_SERVER_CONFIG, coerceServerConfigValue } from './lib/serverConfig.js';
 import { createLogger } from './lib/logger.js';
 
 const log = createLogger();
@@ -983,7 +984,7 @@ function sendBanList(connection, bans) {
 }
 
 async function startServer(server_id) {
-    const serverConfig = {};
+    const serverConfig = { ...DEFAULT_SERVER_CONFIG };
 
     const dbConfigs = await Config.findAll({
         where: {
@@ -996,66 +997,13 @@ async function startServer(server_id) {
     });
 
     for (const dbConfig of dbConfigs) {
-        if (/^\d+$/.test(dbConfig.value)) {
-            dbConfig.value = parseInt(dbConfig.value);
-        }
-
-        if (dbConfig.value === 'true' || dbConfig.value === 'false') {
-            dbConfig.value = dbConfig.value === 'true';
-        }
-
+        const value = coerceServerConfigValue(dbConfig.key, dbConfig.value);
         if (dbConfig.key === 'sslKey' || dbConfig.key === 'sslCert') {
-            serverConfig[dbConfig.key] = resolveConfigFileValue(dbConfig.value);
+            serverConfig[dbConfig.key] = resolveConfigFileValue(value);
             continue;
         }
 
-        serverConfig[dbConfig.key] = dbConfig.value;
-    }
-
-    if (typeof serverConfig.port === 'undefined') {
-        serverConfig.port = 64738;
-    }
-    if (typeof serverConfig.bandwidth === 'undefined') {
-        serverConfig.bandwidth = 558000;
-    }
-    if (typeof serverConfig.users === 'undefined') {
-        serverConfig.users = 100;
-    }
-    if (typeof serverConfig.allowping === 'undefined') {
-        serverConfig.allowping = true;
-    }
-    if (typeof serverConfig.sendversion === 'undefined') {
-        serverConfig.sendversion = true;
-    }
-    if (typeof serverConfig.allowhtml === 'undefined') {
-        serverConfig.allowhtml = true;
-    }
-    if (typeof serverConfig.imagemessagelength === 'undefined') {
-        serverConfig.imagemessagelength = 1048576;
-    }
-    if (typeof serverConfig.textmessagelength === 'undefined') {
-        serverConfig.textmessagelength = 5000;
-    }
-    if (typeof serverConfig.defaultchannel === 'undefined') {
-        serverConfig.defaultchannel = 0;
-    }
-    if (typeof serverConfig.rememberchannel === 'undefined') {
-        serverConfig.rememberchannel = true;
-    }
-    if (typeof serverConfig.rememberchannelduration === 'undefined') {
-        serverConfig.rememberchannelduration = 0;
-    }
-    if (typeof serverConfig.opusthreshold === 'undefined') {
-        serverConfig.opusthreshold = 0;
-    }
-    if (typeof serverConfig.channelnestinglimit === 'undefined') {
-        serverConfig.channelnestinglimit = 10;
-    }
-    if (typeof serverConfig.channelcountlimit === 'undefined') {
-        serverConfig.channelcountlimit = 1000;
-    }
-    if (typeof serverConfig.certrequired === 'undefined') {
-        serverConfig.certrequired = false;
+        serverConfig[dbConfig.key] = value;
     }
 
     const channelNameValidator = buildChannelNameValidator(serverConfig.channelname);
@@ -3278,6 +3226,19 @@ async function startServer(server_id) {
 const bootstrap = await ensureDatabaseReady();
 const serverIds = await getServerIds();
 const primaryServerId = serverIds[0] ?? 1;
+
+if (bootstrap.configSource === 'defaults') {
+    log.info(
+        {
+            configPath: bootstrap.configPath
+        },
+        'Server config file not found; using defaults'
+    );
+}
+
+for (const warning of bootstrap.configWarnings || []) {
+    log.warn(warning);
+}
 
 if (bootstrap.superUserPassword) {
     log.info(
