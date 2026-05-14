@@ -1568,15 +1568,23 @@ async function startServer(server_id) {
 
             const refreshedChannel = channels[createdChannel.channel_id];
 
+            if (refreshedChannel) {
+                broadcastChannelState(refreshedChannel);
+            }
+
             if (createdChannel.temporary) {
                 const updatedUser = await Users.updateUser(userId, {
                     channelId: createdChannel.channel_id
                 });
-                Users.emit('broadcast', 'UserState', updatedUser, userId);
-            }
-
-            if (refreshedChannel) {
-                broadcastChannelState(refreshedChannel);
+                Users.emit(
+                    'broadcast',
+                    'UserState',
+                    {
+                        session: updatedUser.session,
+                        channelId: updatedUser.channelId
+                    },
+                    userId
+                );
             }
             return;
         }

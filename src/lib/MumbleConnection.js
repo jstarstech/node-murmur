@@ -1,7 +1,7 @@
 import { EventEmitter } from 'events';
 import MumbleSocket from './MumbleSocket.js';
 import Messages from './MumbleMessageMap.js';
-import { toEventName, trace as TRACE, dir as DIR } from './util.js';
+import { trace as TRACE, dir as DIR } from './util.js';
 import { rebuildVoicePacket } from './voice.js';
 
 /**
@@ -125,7 +125,7 @@ class MumbleConnection extends EventEmitter {
             handler.call(this, msg);
         }
 
-        const handlerName = toEventName(messageName);
+        const handlerName = messageName.replace(/^([A-Z]+)(?=([A-Z]?[a-z])|$)/g, (match, $1) => $1.toLowerCase());
 
         this.emit(handlerName, msg);
         this.emit('protocol-in', {
