@@ -2789,7 +2789,10 @@ async function startServer(server_id) {
                     }
                 }
 
-                if (!canEnterChannel(requestedChannelId, target, channels, aclState)) {
+                const destinationPermissions = computePermissions(requestedChannelId, actor, channels, aclState);
+                const actorCanMoveHere = (destinationPermissions & PERMISSIONS.Move) === PERMISSIONS.Move;
+
+                if (!actorCanMoveHere && !canEnterChannel(requestedChannelId, target, channels, aclState)) {
                     connection.sendMessage('PermissionDenied', {
                         type: 1,
                         permission: PERMISSIONS.Enter,
