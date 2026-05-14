@@ -2573,13 +2573,7 @@ async function startServer(server_id) {
             );
         });
 
-        const pendingUserStates = [];
         async function handleUserState(m) {
-            if (!ready) {
-                pendingUserStates.push(m);
-                return;
-            }
-
             const actor = Users.getUser(uid);
             if (!actor || actor.session === undefined) {
                 return;
@@ -2785,8 +2779,9 @@ async function startServer(server_id) {
 
                 const destinationPermissions = computePermissions(requestedChannelId, actor, channels, aclState);
                 const actorCanMoveHere = (destinationPermissions & PERMISSIONS.Move) === PERMISSIONS.Move;
+                const targetCanEnterDestination = canEnterChannel(requestedChannelId, target, channels, aclState);
 
-                if (!actorCanMoveHere && !canEnterChannel(requestedChannelId, target, channels, aclState)) {
+                if (!actorCanMoveHere && !targetCanEnterDestination) {
                     connection.sendMessage('PermissionDenied', {
                         type: 1,
                         permission: PERMISSIONS.Enter,
@@ -2852,24 +2847,26 @@ async function startServer(server_id) {
 
                     updateUserState.comment = '';
                     updateUserState.commentHash = Buffer.alloc(0);
-                    updateUserState.commentBlob = '';
                 } else {
-                    const commentBlob = await putTextBlob(comment);
-
                     if (target.userId !== null && target.userId !== undefined) {
-                        await setUserInfoValue(1, target.userId, 2, commentBlob);
+                        await setUserInfoValue(1, target.userId, 2, comment);
                     }
 
                     updateUserState.comment = comment;
-                    updateUserState.commentHash = Buffer.from(commentBlob, 'hex');
-                    updateUserState.commentBlob = commentBlob;
+                    updateUserState.commentHash = crypto.createHash('sha1').update(comment).digest();
                 }
             }
 
             await Users.updateUser(targetUserId, updateUserState);
             Users.emit('broadcast', 'UserState', updateUserState, targetUserId);
         }
-        connection.on('userState', handleUserState);
+        connection.on('userState', m => {
+            if (!ready) {
+                return;
+            }
+
+            handleUserState(m);
+        });
 
         if (serverConfig.sendversion !== false) {
             connection.sendMessage('Version', {
@@ -3017,9 +3014,6 @@ async function startServer(server_id) {
             ready = true;
             connection.state = 'ready';
 
-            while (pendingUserStates.length > 0) {
-                await handleUserState(pendingUserStates.shift());
-            }
         });
 
         connection.on('channelRemove', async ({ channelId }) => {
