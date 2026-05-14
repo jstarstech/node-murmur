@@ -1,8 +1,10 @@
 import { DataTypes } from 'sequelize';
+import { Model } from 'sequelize';
 import { sequelize } from './index.js';
 
-const Config = sequelize.define(
-    'config',
+class Config extends Model {}
+
+Config.init(
     {
         server_id: {
             type: DataTypes.INTEGER,
@@ -18,6 +20,8 @@ const Config = sequelize.define(
         }
     },
     {
+        sequelize,
+        modelName: 'config',
         timestamps: false,
         freezeTableName: true
     }

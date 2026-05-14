@@ -1,8 +1,10 @@
 import { DataTypes } from 'sequelize';
+import { Model } from 'sequelize';
 import { sequelize } from './index.js';
 
-const Channels = sequelize.define(
-    'channels',
+class Channels extends Model {}
+
+Channels.init(
     {
         server_id: {
             type: DataTypes.INTEGER,
@@ -27,6 +29,8 @@ const Channels = sequelize.define(
         }
     },
     {
+        sequelize,
+        modelName: 'channels',
         timestamps: false,
         freezeTableName: true
     }

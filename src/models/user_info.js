@@ -1,8 +1,10 @@
 import { DataTypes } from 'sequelize';
+import { Model } from 'sequelize';
 import { sequelize } from './index.js';
 
-const UserInfo = sequelize.define(
-    'user_info',
+class UserInfo extends Model {}
+
+UserInfo.init(
     {
         server_id: {
             type: DataTypes.INTEGER,
@@ -22,6 +24,8 @@ const UserInfo = sequelize.define(
         }
     },
     {
+        sequelize,
+        modelName: 'user_info',
         timestamps: false,
         freezeTableName: true
     }
