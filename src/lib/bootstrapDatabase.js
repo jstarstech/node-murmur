@@ -4,7 +4,6 @@ import { fileURLToPath } from 'url';
 import { sequelize } from '../models/index.js';
 import { generateSelfSignedCert } from './selfSignedCert.js';
 import { createSaltedSha1PasswordHash, generateSuperUserPassword } from './passwordHash.js';
-import { isBlobHash, putTextBlob } from './blobStore.js';
 
 const ROOT_DIR = path.dirname(fileURLToPath(new URL('../../package.json', import.meta.url)));
 const DEFAULT_CERT_PATH = './ssl/server.cert';
@@ -130,10 +129,6 @@ const SCHEMA_STATEMENTS = [
 
 function resolvePath(relativePath) {
     return path.resolve(ROOT_DIR, relativePath);
-}
-
-function ensureParentDir(filePath) {
-    fs.mkdirSync(path.dirname(filePath), { recursive: true });
 }
 
 function readFileValue(value) {
@@ -305,42 +300,6 @@ async function ensureSuperUser(serverId, transaction) {
     return { created: true, password };
 }
 
-async function normalizeChannelDescriptionBlobs(serverId) {
-    const [rows] = await sequelize.query(
-        `SELECT channel_id, value
-         FROM channel_info
-         WHERE server_id = ${Number(serverId)}
-           AND key = 0`
-    );
-
-    for (const row of rows || []) {
-        const description = typeof row.value === 'string' ? row.value : '';
-
-        if (description.length === 0) {
-            await sequelize.query(
-                `DELETE FROM channel_info
-                 WHERE server_id = ${Number(serverId)}
-                   AND channel_id = ${Number(row.channel_id)}
-                   AND key = 0`
-            );
-            continue;
-        }
-
-        if (isBlobHash(description)) {
-            continue;
-        }
-
-        const descriptionHash = await putTextBlob(description);
-        await sequelize.query(
-            `UPDATE channel_info
-             SET value = ${sequelize.escape(descriptionHash)}
-             WHERE server_id = ${Number(serverId)}
-               AND channel_id = ${Number(row.channel_id)}
-               AND key = 0`
-        );
-    }
-}
-
 async function normalizeExistingServerCertificates(serverId) {
     const certAbsPath = resolvePath(DEFAULT_CERT_PATH);
     const keyAbsPath = resolvePath(DEFAULT_KEY_PATH);
@@ -354,8 +313,8 @@ async function normalizeExistingServerCertificates(serverId) {
         typeof privateKey === 'string' &&
         privateKey.startsWith('-----BEGIN ')
     ) {
-        ensureParentDir(certAbsPath);
-        ensureParentDir(keyAbsPath);
+        fs.mkdirSync(path.dirname(certAbsPath), { recursive: true });
+        fs.mkdirSync(path.dirname(keyAbsPath), { recursive: true });
         fs.writeFileSync(certAbsPath, certificate);
         fs.writeFileSync(keyAbsPath, privateKey);
         await storeServerCertConfig(serverId, DEFAULT_CERT_PATH, DEFAULT_KEY_PATH);
@@ -486,7 +445,6 @@ export async function ensureDatabaseReady() {
         }
 
         await normalizeExistingServerCertificates(1);
-        await normalizeChannelDescriptionBlobs(1);
         await ensureSelfRegisterAcl(1);
         const superUser = await ensureSuperUser(1);
 

@@ -1,10 +1,14 @@
+import crypto from 'crypto';
 import { EventEmitter } from 'events';
 import _ from 'underscore';
 import Users from '../models/users.js';
 import UserInfo from '../models/user_info.js';
-import { getBlob, getTextBlob, isBlobHash, putBlob, putTextBlob } from './blobStore.js';
 import { verifySaltedSha1PasswordHash } from './passwordHash.js';
 import SessionPool from './sessionPool.js';
+
+function sha1Buffer(value) {
+    return crypto.createHash('sha1').update(value).digest();
+}
 
 class User extends EventEmitter {
     users = {};
@@ -62,15 +66,13 @@ class User extends EventEmitter {
             selfDeaf: false,
             channelId: 0,
             prioritySpeaker: false,
-            textureHash: [],
-            commentHash: [],
-            textureBlob: '',
-            commentBlob: '',
+            textureHash: Buffer.alloc(0),
+            commentHash: Buffer.alloc(0),
             hash: '',
             comment: '',
             pluginIdentity: '',
             pluginContext: [],
-            texture: []
+            texture: Buffer.alloc(0)
         };
         let rememberedChannel = null;
 
@@ -236,75 +238,21 @@ class User extends EventEmitter {
                 if (matchedUser.texture && matchedUser.texture.length > 0) {
                     const rawTexture = Buffer.isBuffer(matchedUser.texture)
                         ? Buffer.from(matchedUser.texture)
-                        : Buffer.from(String(matchedUser.texture));
+                        : Buffer.from(matchedUser.texture, 'utf8');
 
-                    if (Buffer.isBuffer(matchedUser.texture) || !isBlobHash(String(matchedUser.texture))) {
-                        const textureBlob = await putBlob(rawTexture);
-                        user_model.texture = rawTexture;
-                        user_model.textureBlob = textureBlob;
-                        user_model.textureHash = Buffer.from(textureBlob, 'hex');
-
-                        await Users.update(
-                            {
-                                texture: textureBlob
-                            },
-                            {
-                                where: {
-                                    server_id: this.serverId,
-                                    user_id: matchedUser.user_id
-                                }
-                            }
-                        ).catch(err => {
-                            this.log.error(new Error(err));
-                        });
-                    } else {
-                        const textureBlob = String(matchedUser.texture);
-                        const texture = await getBlob(textureBlob);
-
-                        if (texture) {
-                            user_model.texture = texture;
-                            user_model.textureBlob = textureBlob;
-                            user_model.textureHash = Buffer.from(textureBlob, 'hex');
-                        }
-                    }
+                    user_model.texture = rawTexture;
+                    user_model.textureHash = sha1Buffer(rawTexture);
                 }
 
                 for (const { key, value } of rows) {
-                    if (key === 2) {
+                    if (Number(key) === 2) {
                         if (value && value.length > 0) {
                             const commentValue = String(value);
-
-                            if (!isBlobHash(commentValue)) {
-                                const commentBlob = await putTextBlob(commentValue);
-                                user_model.comment = commentValue;
-                                user_model.commentBlob = commentBlob;
-                                user_model.commentHash = Buffer.from(commentBlob, 'hex');
-
-                                await UserInfo.update(
-                                    {
-                                        value: commentBlob
-                                    },
-                                    {
-                                        where: {
-                                            server_id: this.serverId,
-                                            user_id: matchedUser.user_id,
-                                            key: 2
-                                        }
-                                    }
-                                ).catch(err => {
-                                    this.log.error(new Error(err));
-                                });
-                            } else {
-                                user_model.commentBlob = commentValue;
-                                user_model.commentHash = Buffer.from(commentValue, 'hex');
-                                const comment = await getTextBlob(commentValue);
-                                if (comment) {
-                                    user_model.comment = comment;
-                                }
-                            }
+                            user_model.comment = commentValue;
+                            user_model.commentHash = sha1Buffer(commentValue);
                         }
                     }
-                    if (key === 3 && user_data.hash) {
+                    if (Number(key) === 3 && user_data.hash) {
                         user_model.hash = value;
                     }
                 }

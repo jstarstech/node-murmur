@@ -26,7 +26,6 @@ import ChannelInfo from './models/channel_info.js';
 import RegisteredUsers from './models/users.js';
 import UserInfo from './models/user_info.js';
 import { sequelize } from './models/index.js';
-import { getBlob, getTextBlob, isBlobHash, putBlob, putTextBlob } from './lib/blobStore.js';
 import { ensureDatabaseReady, resolveConfigFileValue } from './lib/bootstrapDatabase.js';
 import { createLogger } from './lib/logger.js';
 
@@ -41,41 +40,49 @@ async function getChannels(server_id) {
     const dbChannels = await Channels.findAll({
         where: {
             server_id
-        }
+        },
+        raw: true
     }).catch(err => {
         log.error(new Error(err));
 
         return [];
     });
 
+    const channelInfos = await ChannelInfo.findAll({
+        where: {
+            server_id
+        },
+        raw: true
+    }).catch(err => {
+        log.error(new Error(err));
+
+        return [];
+    });
+
+    const infosByChannel = new Map();
+    for (const channelInfo of channelInfos) {
+        const channelId = Number(channelInfo.channel_id);
+        if (!infosByChannel.has(channelId)) {
+            infosByChannel.set(channelId, []);
+        }
+
+        infosByChannel.get(channelId).push(channelInfo);
+    }
+
     for (const dbChannel of dbChannels) {
-        channels[dbChannel.channel_id] = dbChannel;
+        const channelId = Number(dbChannel.channel_id);
+        channels[channelId] = {
+            ...dbChannel,
+            channel_id: channelId
+        };
 
-        const channelInfos = await ChannelInfo.findAll({
-            where: {
-                server_id,
-                channel_id: dbChannel.channel_id
-            }
-        }).catch(err => {
-            log.error(new Error(err));
-
-            return [];
-        });
-
-        for (const channelInfo of channelInfos) {
-            if (channelInfo.key === 0) {
-                const descriptionValue = typeof channelInfo.value === 'string' ? channelInfo.value : '';
-                if (isBlobHash(descriptionValue)) {
-                    channels[channelInfo.channel_id].description = (await getTextBlob(descriptionValue)) || '';
-                    channels[channelInfo.channel_id].descriptionBlob = descriptionValue;
-                } else {
-                    channels[channelInfo.channel_id].description = descriptionValue;
-                    channels[channelInfo.channel_id].descriptionBlob = null;
-                }
+        for (const channelInfo of infosByChannel.get(channelId) || []) {
+            if (Number(channelInfo.key) === 0) {
+                channels[channelId].description = channelInfo.value == null ? '' : String(channelInfo.value);
             }
 
-            if (channelInfo.key === 1) {
-                channels[channelInfo.channel_id].position = channelInfo.value;
+            if (Number(channelInfo.key) === 1) {
+                channels[channelId].position = channelInfo.value;
             }
         }
     }
@@ -94,6 +101,10 @@ async function getChannels(server_id) {
     }
 
     for (const channel of Object.values(channels)) {
+        if (!channel.description) {
+            channel.description = '';
+        }
+
         if (!(channel.links instanceof Set)) {
             channel.links = new Set();
         }
@@ -137,10 +148,10 @@ async function getServerIds() {
     return rows.map(row => Number(row.server_id)).filter(serverId => Number.isFinite(serverId) && serverId > 0);
 }
 
-function buildChannelStatePayload(channel, clientVersion = 0) {
+function buildChannelStatePayload(channel, clientVersion = 0, { includeDescription = false } = {}) {
     const description = channel.description || '';
     const descriptionBuffer = Buffer.from(description);
-    const shouldSendHash = descriptionBuffer.length >= 128 && (clientVersion || 0) >= 0x10202;
+    const shouldSendHash = !includeDescription && descriptionBuffer.length >= 128 && (clientVersion || 0) >= 0x10202;
     const position = Number.isFinite(Number(channel.position)) ? Number(channel.position) : 0;
     const links = Array.isArray(channel.links) ? channel.links : channel.links instanceof Set ? [...channel.links] : [];
 
@@ -164,18 +175,6 @@ function buildChannelStatePayload(channel, clientVersion = 0) {
 async function setChannelDescriptionValue(serverId, channelId, description, transaction) {
     const channelDescription = typeof description === 'string' ? description : '';
 
-    if (channelDescription.length === 0) {
-        await sequelize.query(
-            `DELETE FROM channel_info
-             WHERE server_id = ${Number(serverId)}
-               AND channel_id = ${Number(channelId)}
-               AND key = 0`,
-            { transaction }
-        );
-        return null;
-    }
-
-    const descriptionHash = await putTextBlob(channelDescription);
     await sequelize.query(
         `DELETE FROM channel_info
          WHERE server_id = ${Number(serverId)}
@@ -183,17 +182,23 @@ async function setChannelDescriptionValue(serverId, channelId, description, tran
            AND key = 0`,
         { transaction }
     );
+
+    if (channelDescription.length === 0) {
+        return null;
+    }
+
     await sequelize.query(
         `INSERT INTO channel_info (server_id, channel_id, key, value)
          VALUES (
             ${Number(serverId)},
             ${Number(channelId)},
             0,
-            ${sequelize.escape(descriptionHash)}
+            ${sequelize.escape(channelDescription)}
          )`,
         { transaction }
     );
-    return descriptionHash;
+
+    return channelDescription;
 }
 
 function sendChannelState(connection, channel) {
@@ -2485,44 +2490,26 @@ async function startServer(server_id) {
             const requestedTextures = Array.isArray(m.sessionTexture) ? m.sessionTexture : [];
             for (const session of requestedTextures) {
                 const target = findUserBySession(Number(session));
-                if (!target || (!target.textureBlob && (!target.texture || target.texture.length === 0))) {
-                    continue;
-                }
-
-                let texture = target.texture;
-                if (target.textureBlob && isBlobHash(target.textureBlob)) {
-                    texture = (await getBlob(target.textureBlob)) || texture;
-                }
-
-                if (!texture || texture.length === 0) {
+                if (!target || !target.texture || target.texture.length === 0) {
                     continue;
                 }
 
                 connection.sendMessage('UserState', {
                     session: target.session,
-                    texture
+                    texture: target.texture
                 });
             }
 
             const requestedComments = Array.isArray(m.sessionComment) ? m.sessionComment : [];
             for (const session of requestedComments) {
                 const target = findUserBySession(Number(session));
-                if (!target || (!target.commentBlob && !target.comment)) {
-                    continue;
-                }
-
-                let comment = target.comment;
-                if (target.commentBlob && isBlobHash(target.commentBlob)) {
-                    comment = (await getTextBlob(target.commentBlob)) || comment;
-                }
-
-                if (!comment) {
+                if (!target || !target.comment) {
                     continue;
                 }
 
                 connection.sendMessage('UserState', {
                     session: target.session,
-                    comment
+                    comment: target.comment
                 });
             }
 
@@ -2534,8 +2521,7 @@ async function startServer(server_id) {
                 }
 
                 connection.sendMessage('ChannelState', {
-                    channelId: channel.channel_id,
-                    description: channel.description
+                    ...buildChannelStatePayload(channel, connection.clientVersion, { includeDescription: true })
                 });
             }
         });
@@ -2836,14 +2822,11 @@ async function startServer(server_id) {
 
                     updateUserState.texture = Buffer.alloc(0);
                     updateUserState.textureHash = Buffer.alloc(0);
-                    updateUserState.textureBlob = '';
                 } else {
-                    const textureBlob = await putBlob(texture);
-
                     if (target.userId !== null && target.userId !== undefined) {
                         await RegisteredUsers.update(
                             {
-                                texture: textureBlob
+                                texture
                             },
                             {
                                 where: {
@@ -2855,8 +2838,7 @@ async function startServer(server_id) {
                     }
 
                     updateUserState.texture = texture;
-                    updateUserState.textureHash = Buffer.from(textureBlob, 'hex');
-                    updateUserState.textureBlob = textureBlob;
+                    updateUserState.textureHash = crypto.createHash('sha1').update(texture).digest();
                 }
             }
 
