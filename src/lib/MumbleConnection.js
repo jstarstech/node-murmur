@@ -137,18 +137,17 @@ class MumbleConnection extends EventEmitter {
         DIR(data);
 
         const packet = buildPacket(type, data);
-
-        // Create the packet prefix.
-        const prefix = Buffer.allocUnsafe(6);
         const messageId = MESSAGE_ID_BY_NAME[type];
+        const message = Buffer.alloc(6 + packet.length);
 
-        prefix.writeUInt16BE(messageId, 0);
-        prefix.writeUInt32BE(packet.length, 2);
+        message.writeUInt16BE(messageId, 0);
+        message.writeUInt32BE(packet.length, 2);
+        packet.copy(message, 6);
 
         this.emit('protocol-out', { type, message: data });
 
         // Write the message in one chunk to avoid tiny-write latency.
-        this.socket.write(Buffer.concat([prefix, packet]));
+        this.socket.write(message);
     }
 
     /**
@@ -227,13 +226,11 @@ class MumbleConnection extends EventEmitter {
      * @param data Voice packet
      **/
     _onUDPTunnel(data) {
-        const packet = Buffer.isBuffer(data) ? data : data?.packet ? Buffer.from(data.packet) : null;
-
-        if (!packet) {
+        if (!Buffer.isBuffer(data) || data.length === 0) {
             return;
         }
 
-        const voicePacket = rebuildVoicePacket(this.sessionId, packet);
+        const voicePacket = rebuildVoicePacket(this.sessionId, data);
 
         if (!voicePacket) {
             return;
