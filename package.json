@@ -1,9 +1,22 @@
 {
-  "name": "murmur",
-  "version": "0.0.1",
-  "description": "",
-  "main": "src/app.js",
+  "name": "node-murmur",
+  "version": "0.1.0",
+  "description": "A Node.js implementation of a Mumble-compatible voice server",
   "type": "module",
+  "main": "src/app.js",
+  "author": "jstarstech",
+  "license": "BSD-2-Clause",
+  "homepage": "https://github.com/jstarstech/node-murmur",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/jstarstech/node-murmur.git"
+  },
+  "bugs": {
+    "url": "https://github.com/jstarstech/node-murmur/issues"
+  },
+  "engines": {
+    "node": ">= 24"
+  },
   "scripts": {
     "start": "node src/app.js",
     "dev": "nodemon --config nodemon.json src/app.js",
@@ -11,8 +24,6 @@
     "lint:fix": "eslint . --fix",
     "test": "node --test test/*.test.js"
   },
-  "author": "",
-  "license": "BSD-2-Clause",
   "dependencies": {
     "ini": "^7.0.0",
     "pino": "^10.3.1",
@@ -20,9 +31,6 @@
     "sequelize": "^6.37.8",
     "sqlite3": "^6.0.1",
     "tweetnacl": "^1.0.3"
-  },
-  "engines": {
-    "node": ">= 22"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
