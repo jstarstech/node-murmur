@@ -151,10 +151,6 @@ function parseString(value, spec) {
         return spec.default;
     }
 
-    if (value === '') {
-        return '';
-    }
-
     if (typeof value === 'string') {
         return value;
     }

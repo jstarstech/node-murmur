@@ -5,12 +5,7 @@ class SessionPool {
     }
 
     get() {
-        const reclaimedSessionId = this.reclaimedSessions.pop();
-        if (reclaimedSessionId !== undefined) {
-            return reclaimedSessionId;
-        }
-
-        return this.nextSessionId++;
+        return this.reclaimedSessions.pop() ?? this.nextSessionId++;
     }
 
     reclaim(sessionId) {
