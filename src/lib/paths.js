@@ -1,7 +1,6 @@
 import path from 'path';
-import { fileURLToPath } from 'url';
 
-export const ROOT_DIR = path.dirname(fileURLToPath(new URL('../../package.json', import.meta.url)));
+export const ROOT_DIR = process.cwd();
 export const DATA_DIR = path.join(ROOT_DIR, 'data');
 
 export const DEFAULT_CONFIG_FILE = path.join(DATA_DIR, 'mumble-server.ini');

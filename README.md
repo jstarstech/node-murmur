@@ -21,6 +21,12 @@ Start the server:
 npm start
 ```
 
+After publishing, the server can also be run with `npx`:
+
+```bash
+npx node-murmur
+```
+
 By default, the server keeps runtime state in `data/`:
 
 - `data/mumble-server.ini` for optional server config

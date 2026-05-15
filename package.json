@@ -4,8 +4,15 @@
   "description": "A Node.js implementation of a Mumble-compatible voice server",
   "type": "module",
   "main": "src/app.js",
+  "bin": {
+    "node-murmur": "./bin/node-murmur.js"
+  },
+  "files": [
+    "bin",
+    "src"
+  ],
   "author": "jstarstech",
-  "license": "BSD-2-Clause",
+  "license": "MIT",
   "homepage": "https://github.com/jstarstech/node-murmur",
   "repository": {
     "type": "git",
