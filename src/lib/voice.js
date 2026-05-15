@@ -21,10 +21,11 @@ export function rebuildVoicePacket(sessionId, data) {
         return null;
     }
 
-    const target = getVoiceTarget(data);
-    const type = getVoiceKind(data);
+    const header = data[0];
+    const target = header & 0x1f;
+    const type = (header >> 5) & 0x07;
 
-    if (type === null || ![0, 2, 3, 4].includes(type)) {
+    if (type !== 0 && type !== 2 && type !== 3 && type !== 4) {
         return null;
     }
 
@@ -35,8 +36,8 @@ export function rebuildVoicePacket(sessionId, data) {
     const voicePacket = Buffer.alloc(1 + sessionVarint.length + sequenceVarint.length + packet.length);
 
     voicePacket[0] = (type << 5) | target;
-    sessionVarint.value.copy(voicePacket, 1, 0);
-    sequenceVarint.value.copy(voicePacket, 1 + sessionVarint.length, 0);
+    sessionVarint.value.copy(voicePacket, 1);
+    sequenceVarint.value.copy(voicePacket, 1 + sessionVarint.length);
     packet.copy(voicePacket, 1 + sessionVarint.length + sequenceVarint.length);
 
     return voicePacket;

@@ -3121,10 +3121,6 @@ async function startServer(server_id) {
 
     serverUdp = dgram.createSocket('udp4');
 
-    serverUdp.on('listening', () => {
-        // const address = serverUdp.address();;
-    });
-
     serverUdp.on('message', (message, rinfo) => {
         if (message.length === 12) {
             if (serverConfig.allowping === false) {

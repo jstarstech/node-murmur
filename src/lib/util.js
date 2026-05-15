@@ -131,8 +131,7 @@ export function fromVarint(b) {
 }
 
 export let trace = () => {},
-    dir = () => {},
-    warn = () => {};
+    dir = () => {};
 
 if (process.env.MUMBLE_TRACE) {
     trace = msg => {
@@ -140,9 +139,6 @@ if (process.env.MUMBLE_TRACE) {
     };
     dir = data => {
         console.dir(data);
-    };
-    warn = msg => {
-        console.log(`WARNING: ${msg}`);
     };
 }
 
