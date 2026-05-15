@@ -78,32 +78,9 @@ const groupMatchesBuiltin = (name, user, currentChannelId) => {
     return null;
 };
 
-const getGroupDefinition = (groupName, channelId, channels, aclState) => {
-    let currentId = channelId;
-
-    while (currentId !== null && currentId !== undefined) {
-        const groupsForChannel = aclState.groupsByChannel.get(currentId);
-        const group = groupsForChannel ? groupsForChannel.get(groupName) : null;
-
-        if (group) {
-            return group;
-        }
-
-        currentId = channels[currentId]?.parent_id ?? null;
-    }
-
-    return null;
-};
-
 const resolveCustomGroupMembers = (groupName, channelId, channels, aclState) => {
-    const definition = getGroupDefinition(groupName, channelId, channels, aclState);
-
-    if (!definition) {
-        return new Set();
-    }
-
     const definitions = [];
-    let currentId = definition.channelId;
+    let currentId = channelId;
 
     while (currentId !== null && currentId !== undefined) {
         const groupsForChannel = aclState.groupsByChannel.get(currentId);
