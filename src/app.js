@@ -4,7 +4,6 @@ import net from 'net';
 import tls from 'tls';
 import os from 'os';
 import _ from 'underscore';
-import BufferPack from 'bufferpack';
 import * as util from './lib/util.js';
 import MumbleConnection from './lib/MumbleConnection.js';
 import User from './lib/User.js';
@@ -34,6 +33,15 @@ const log = createLogger();
 const CELT_COMPAT_BITSTREAM = -2147483637;
 const DEFAULT_CHANNEL_NAME_PATTERN = '[ \\-=\\w#\\[\\]\\{\\}\\(\\)@\\|\\.]+';
 const DEFAULT_USERNAME_PATTERN = '[-=\\w\\[\\]\\{\\}\\(\\)@\\|\\.]+';
+
+function clampInt32(value) {
+    const n = Number(value);
+    if (!Number.isFinite(n)) {
+        return 0;
+    }
+
+    return Math.max(-2147483648, Math.min(2147483647, Math.trunc(n)));
+}
 
 async function getChannels(server_id) {
     const channels = {};
@@ -3131,15 +3139,12 @@ async function startServer(server_id) {
                 return;
             }
 
-            const q = BufferPack.unpack('>id', message, 0);
-
-            const buffer = BufferPack.pack('>idiii', [
-                0x00010204,
-                q[1],
-                getLiveUserCount(),
-                5,
-                Number(serverConfig.bandwidth || 0)
-            ]);
+            const buffer = Buffer.alloc(24);
+            buffer.writeUInt32BE(0x00010204, 0);
+            buffer.writeDoubleBE(message.readDoubleBE(4), 4);
+            buffer.writeInt32BE(clampInt32(getLiveUserCount()), 12);
+            buffer.writeInt32BE(5, 16);
+            buffer.writeInt32BE(clampInt32(serverConfig.bandwidth || 0), 20);
 
             serverUdp.send(buffer, 0, buffer.length, rinfo.port, rinfo.address, err => {
                 if (err) {
