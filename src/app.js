@@ -3,7 +3,6 @@ import crypto from 'crypto';
 import net from 'net';
 import tls from 'tls';
 import os from 'os';
-import _ from 'underscore';
 import * as util from './lib/util.js';
 import MumbleConnection from './lib/MumbleConnection.js';
 import User from './lib/User.js';
@@ -2912,14 +2911,14 @@ async function startServer(server_id) {
 
             Users.emit('broadcast', 'UserState', initialUserState, uid);
 
-            _.each(Users.users, item => {
+            for (const item of Object.values(Users.users)) {
                 if (item.session === connection.sessionId) {
-                    return;
+                    continue;
                 }
 
                 const targetConnection = connectionsBySession.get(item.session);
                 if (!targetConnection || targetConnection.state !== 'ready') {
-                    return;
+                    continue;
                 }
 
                 connection.sendMessage(
@@ -2930,7 +2929,7 @@ async function startServer(server_id) {
                         includeUnsetFlags: false
                     })
                 );
-            });
+            }
 
             connection.sendMessage('ServerSync', {
                 session: activeUser.session,

@@ -70,12 +70,7 @@ function normalizePacketBuffer(data) {
 }
 
 function getMessageType(type) {
-    const messageType = PROTO_ROOT.lookupType(`MumbleProto.${type}`);
-    if (!messageType) {
-        throw new Error(`Unsupported message type: ${type}`);
-    }
-
-    return messageType;
+    return PROTO_ROOT.lookupType(`MumbleProto.${type}`);
 }
 
 function getMessageName(typeId) {
@@ -146,9 +141,6 @@ class MumbleConnection extends EventEmitter {
         // Create the packet prefix.
         const prefix = Buffer.allocUnsafe(6);
         const messageId = MESSAGE_ID_BY_NAME[type];
-        if (typeof messageId !== 'number') {
-            throw new Error(`Unsupported message type: ${type}`);
-        }
 
         prefix.writeUInt16BE(messageId, 0);
         prefix.writeUInt32BE(packet.length, 2);

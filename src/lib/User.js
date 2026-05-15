@@ -1,6 +1,5 @@
 import crypto from 'crypto';
 import { EventEmitter } from 'events';
-import _ from 'underscore';
 import Users from '../models/users.js';
 import UserInfo from '../models/user_info.js';
 import { verifySaltedSha1PasswordHash } from './passwordHash.js';
@@ -258,15 +257,15 @@ class User extends EventEmitter {
                 }
             }
 
-            _.each(user_data, (item, key) => {
+            for (const [key, item] of Object.entries(user_data)) {
                 if (key === 'channelId' && rememberedChannel !== null && rememberedChannel !== undefined) {
-                    return;
+                    continue;
                 }
 
                 if (user_model[key] !== undefined) {
                     user_model[key] = item;
                 }
-            });
+            }
 
             if (matchedUser) {
                 user_model.name = matchedUser.name;
@@ -347,11 +346,11 @@ class User extends EventEmitter {
             }
         }
 
-        _.each(user_data, (item, key) => {
+        for (const [key, item] of Object.entries(user_data)) {
             if (user[key] !== undefined) {
                 user[key] = item;
             }
-        });
+        }
 
         if (hasUserIdChange) {
             if (previousUserId !== null) {

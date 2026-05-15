@@ -19,8 +19,7 @@
     "protobufjs": "^8.3.0",
     "sequelize": "^6.37.8",
     "sqlite3": "^6.0.1",
-    "tweetnacl": "^1.0.3",
-    "underscore": "^1.13.8"
+    "tweetnacl": "^1.0.3"
   },
   "engines": {
     "node": ">= 22"

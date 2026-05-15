@@ -12,10 +12,6 @@ class SessionPool {
         const sessionId = this.nextSessionId;
         this.nextSessionId += 1;
 
-        if (sessionId === 0) {
-            return this.get();
-        }
-
         return sessionId;
     }
 
