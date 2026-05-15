@@ -34,6 +34,14 @@ const CELT_COMPAT_BITSTREAM = -2147483637;
 const DEFAULT_CHANNEL_NAME_PATTERN = '[ \\-=\\w#\\[\\]\\{\\}\\(\\)@\\|\\.]+';
 const DEFAULT_USERNAME_PATTERN = '[-=\\w\\[\\]\\{\\}\\(\\)@\\|\\.]+';
 
+function isActiveConnectionState(state) {
+    return state === 'authenticated' || state === 'ready';
+}
+
+function isVersionNegotiatedState(state) {
+    return state === 'version-sent' || state === 'version-received';
+}
+
 async function getChannels(server_id) {
     const channels = {};
 
@@ -1022,8 +1030,10 @@ async function startServer(server_id) {
     const connectionsBySession = new Map();
 
     function disconnectLiveSessionsByRegisteredUserId(userId) {
+        const targetUserId = Number(userId);
+
         for (const user of Object.values(Users.users)) {
-            if (!user || Number(user.userId) !== Number(userId)) {
+            if (!user || Number(user.userId) !== targetUserId) {
                 continue;
             }
 
@@ -1044,7 +1054,7 @@ async function startServer(server_id) {
     function getLiveUserCount() {
         let count = 0;
         for (const connection of connectionsBySession.values()) {
-            if (connection && ['authenticated', 'ready'].includes(connection.state)) {
+            if (connection && isActiveConnectionState(connection.state)) {
                 count += 1;
             }
         }
@@ -1139,7 +1149,7 @@ async function startServer(server_id) {
         const payload = buildContextActionModifyPayload(action, entry, operation);
 
         for (const connection of connectionsBySession.values()) {
-            if (!connection || !['authenticated', 'ready'].includes(connection.state)) {
+            if (!connection || !isActiveConnectionState(connection.state)) {
                 continue;
             }
 
@@ -1233,7 +1243,7 @@ async function startServer(server_id) {
 
         if (changed) {
             for (const connection of connectionsBySession.values()) {
-                if (!connection || !['authenticated', 'ready'].includes(connection.state)) {
+                if (!connection || !isActiveConnectionState(connection.state)) {
                     continue;
                 }
 
@@ -1242,7 +1252,7 @@ async function startServer(server_id) {
 
             if (codecState.opus) {
                 for (const connection of connectionsBySession.values()) {
-                    if (!connection || !['authenticated', 'ready'].includes(connection.state)) {
+                    if (!connection || !isActiveConnectionState(connection.state)) {
                         continue;
                     }
 
@@ -1510,9 +1520,9 @@ async function startServer(server_id) {
 
             const refreshedChannels = await getChannels(1);
             await loadChannelLinks(1, refreshedChannels);
-            Object.keys(channels).forEach(key => {
+            for (const key of Object.keys(channels)) {
                 delete channels[key];
-            });
+            }
             Object.assign(channels, refreshedChannels);
 
             const refreshedAclState = await loadAclState(1);
@@ -1679,9 +1689,9 @@ async function startServer(server_id) {
 
         const refreshedChannels = await getChannels(server_id);
         await loadChannelLinks(server_id, refreshedChannels);
-        Object.keys(channels).forEach(key => {
+        for (const key of Object.keys(channels)) {
             delete channels[key];
-        });
+        }
         Object.assign(channels, refreshedChannels);
 
         const refreshedAclState = await loadAclState(server_id);
@@ -1814,9 +1824,9 @@ async function startServer(server_id) {
 
         const refreshedChannels = await getChannels(server_id);
         await loadChannelLinks(server_id, refreshedChannels);
-        Object.keys(channels).forEach(key => {
+        for (const key of Object.keys(channels)) {
             delete channels[key];
-        });
+        }
         Object.assign(channels, refreshedChannels);
 
         const refreshedAclState = await loadAclState(server_id);
@@ -1957,7 +1967,7 @@ async function startServer(server_id) {
         });
 
         function broadcastListener(type, message, sender_uid) {
-            if (!['authenticated', 'ready'].includes(connection.state)) {
+            if (!isActiveConnectionState(connection.state)) {
                 return;
             }
 
@@ -2145,7 +2155,7 @@ async function startServer(server_id) {
         });
 
         connection.on('queryUsers', async m => {
-            if (!['authenticated', 'ready'].includes(connection.state)) {
+            if (!isActiveConnectionState(connection.state)) {
                 return;
             }
 
@@ -2153,7 +2163,7 @@ async function startServer(server_id) {
         });
 
         connection.on('userList', async m => {
-            if (!['authenticated', 'ready'].includes(connection.state)) {
+            if (!isActiveConnectionState(connection.state)) {
                 return;
             }
 
@@ -2205,7 +2215,7 @@ async function startServer(server_id) {
         });
 
         connection.on('banList', async m => {
-            if (!['authenticated', 'ready'].includes(connection.state)) {
+            if (!isActiveConnectionState(connection.state)) {
                 return;
             }
 
@@ -2250,7 +2260,7 @@ async function startServer(server_id) {
         });
 
         connection.on('contextActionModify', m => {
-            if (!['authenticated', 'ready'].includes(connection.state)) {
+            if (!isActiveConnectionState(connection.state)) {
                 return;
             }
 
@@ -2283,7 +2293,7 @@ async function startServer(server_id) {
         });
 
         connection.on('contextAction', m => {
-            if (!['authenticated', 'ready'].includes(connection.state)) {
+            if (!isActiveConnectionState(connection.state)) {
                 return;
             }
 
@@ -2359,7 +2369,7 @@ async function startServer(server_id) {
         });
 
         connection.on('userRemove', async m => {
-            if (!['authenticated', 'ready'].includes(connection.state)) {
+            if (!isActiveConnectionState(connection.state)) {
                 return;
             }
 
@@ -2427,7 +2437,7 @@ async function startServer(server_id) {
         });
 
         connection.on('requestBlob', async m => {
-            if (!['authenticated', 'ready'].includes(connection.state)) {
+            if (!isActiveConnectionState(connection.state)) {
                 return;
             }
 
@@ -2471,7 +2481,7 @@ async function startServer(server_id) {
         });
 
         connection.on('userStats', async m => {
-            if (!['authenticated', 'ready'].includes(connection.state)) {
+            if (!isActiveConnectionState(connection.state)) {
                 return;
             }
 
@@ -2824,7 +2834,7 @@ async function startServer(server_id) {
         connection.state = 'version-sent';
 
         connection.on('authenticate', async m => {
-            if (!['version-sent', 'version-received'].includes(connection.state)) {
+            if (!isVersionNegotiatedState(connection.state)) {
                 return;
             }
 
