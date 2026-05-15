@@ -1,8 +1,112 @@
 import { EventEmitter } from 'events';
+import protobufjs from 'protobufjs';
+import { fileURLToPath } from 'url';
 import MumbleSocket from './MumbleSocket.js';
-import Messages from './MumbleMessageMap.js';
 import { trace as TRACE, dir as DIR } from './util.js';
 import { rebuildVoicePacket } from './voice.js';
+
+const MESSAGE_ID_BY_NAME = Object.freeze({
+    Version: 0,
+    UDPTunnel: 1,
+    Authenticate: 2,
+    Ping: 3,
+    Reject: 4,
+    ServerSync: 5,
+    ChannelRemove: 6,
+    ChannelState: 7,
+    UserRemove: 8,
+    UserState: 9,
+    BanList: 10,
+    TextMessage: 11,
+    PermissionDenied: 12,
+    ACL: 13,
+    QueryUsers: 14,
+    CryptSetup: 15,
+    ContextActionModify: 16,
+    ContextAction: 17,
+    UserList: 18,
+    VoiceTarget: 19,
+    PermissionQuery: 20,
+    CodecVersion: 21,
+    UserStats: 22,
+    RequestBlob: 23,
+    ServerConfig: 24,
+    SuggestConfig: 25
+});
+
+const MESSAGE_NAME_BY_ID = Object.freeze(
+    Object.fromEntries(Object.entries(MESSAGE_ID_BY_NAME).map(([name, id]) => [id, name]))
+);
+
+const PROTO_ROOT = await new Promise((resolve, reject) => {
+    protobufjs.load(fileURLToPath(new URL('./Mumble.proto', import.meta.url)), (err, root) => {
+        if (err) {
+            reject(err);
+            return;
+        }
+
+        resolve(root);
+    });
+});
+
+function normalizePacketBuffer(data) {
+    if (Buffer.isBuffer(data)) {
+        return data;
+    }
+
+    if (data && Buffer.isBuffer(data.packet)) {
+        return data.packet;
+    }
+
+    if (data && data.packet) {
+        return Buffer.from(data.packet);
+    }
+
+    if (data && typeof data.length === 'number') {
+        return Buffer.from(data);
+    }
+
+    return Buffer.alloc(0);
+}
+
+function getMessageType(type) {
+    const messageType = PROTO_ROOT.lookupType(`MumbleProto.${type}`);
+    if (!messageType) {
+        throw new Error(`Unsupported message type: ${type}`);
+    }
+
+    return messageType;
+}
+
+function getMessageName(typeId) {
+    return MESSAGE_NAME_BY_ID[typeId] || null;
+}
+
+export function buildPacket(type, payload) {
+    if (type === 'UDPTunnel') {
+        return normalizePacketBuffer(payload);
+    }
+
+    if (typeof MESSAGE_ID_BY_NAME[type] !== 'number') {
+        throw new Error(`Unsupported message type: ${type}`);
+    }
+
+    const messageType = getMessageType(type);
+    return messageType.encode(messageType.create(payload || {})).finish();
+}
+
+export function decodePacket(typeId, payload) {
+    if (typeId === MESSAGE_ID_BY_NAME.UDPTunnel) {
+        return Buffer.from(payload || []);
+    }
+
+    const type = getMessageName(typeId);
+    if (!type) {
+        throw new Error(`Unsupported message type: ${typeId}`);
+    }
+
+    return getMessageType(type).decode(payload || {});
+}
 
 /**
  * Mumble connection
@@ -37,28 +141,16 @@ class MumbleConnection extends EventEmitter {
     sendMessage(type, data) {
         DIR(data);
 
-        let packet;
-
-        if (type === 'UDPTunnel') {
-            if (Buffer.isBuffer(data)) {
-                packet = data;
-            } else if (data && Buffer.isBuffer(data.packet)) {
-                packet = data.packet;
-            } else if (data && data.packet) {
-                packet = Buffer.from(data.packet);
-            } else if (data && typeof data.length === 'number') {
-                packet = Buffer.from(data);
-            } else {
-                packet = Buffer.alloc(0);
-            }
-        } else {
-            // Look up the message schema by type and serialize the data into protobuf format.
-            packet = Messages.buildPacket(type, data);
-        }
+        const packet = buildPacket(type, data);
 
         // Create the packet prefix.
         const prefix = Buffer.allocUnsafe(6);
-        prefix.writeUInt16BE(Messages.idByName[type], 0);
+        const messageId = MESSAGE_ID_BY_NAME[type];
+        if (typeof messageId !== 'number') {
+            throw new Error(`Unsupported message type: ${type}`);
+        }
+
+        prefix.writeUInt16BE(messageId, 0);
         prefix.writeUInt32BE(packet.length, 2);
 
         this.emit('protocol-out', { type, message: data });
@@ -90,12 +182,12 @@ class MumbleConnection extends EventEmitter {
      * @param data Message data
      **/
     _processData(type, data) {
-        if (type === Messages.idByName.UDPTunnel) {
+        if (type === MESSAGE_ID_BY_NAME.UDPTunnel) {
             this._processMessage(type, data);
             return;
         }
 
-        const msg = Messages.decodePacket(type, data);
+        const msg = decodePacket(type, data);
         this._processMessage(type, msg);
     }
 
@@ -108,7 +200,7 @@ class MumbleConnection extends EventEmitter {
      * @param msg Message
      **/
     _processMessage(type, msg) {
-        const messageName = Messages.nameById[type];
+        const messageName = getMessageName(type);
         if (!messageName) {
             TRACE(`Unhandled message type: ${type}`);
             TRACE(msg);
