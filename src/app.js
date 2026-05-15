@@ -29,7 +29,7 @@ import { ensureDatabaseReady, resolveConfigFileValue } from './lib/bootstrapData
 import { DEFAULT_SERVER_CONFIG, coerceServerConfigValue } from './lib/serverConfig.js';
 import { createLogger } from './lib/logger.js';
 
-const log = createLogger();
+let log = createLogger();
 const CELT_COMPAT_BITSTREAM = -2147483637;
 const DEFAULT_CHANNEL_NAME_PATTERN = '[ \\-=\\w#\\[\\]\\{\\}\\(\\)@\\|\\.]+';
 const DEFAULT_USERNAME_PATTERN = '[-=\\w\\[\\]\\{\\}\\(\\)@\\|\\.]+';
@@ -3222,6 +3222,7 @@ async function startServer(server_id) {
 }
 
 const bootstrap = await ensureDatabaseReady();
+log = createLogger({ filePath: bootstrap.config?.logfile || DEFAULT_SERVER_CONFIG.logfile });
 const serverIds = await getServerIds();
 const primaryServerId = serverIds[0] ?? 1;
 

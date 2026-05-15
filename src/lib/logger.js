@@ -1,7 +1,10 @@
 import fs from 'fs';
 import path from 'path';
+import { fileURLToPath } from 'url';
 import pino from 'pino';
 import pinoPretty from 'pino-pretty';
+
+const ROOT_DIR = path.dirname(fileURLToPath(new URL('../../package.json', import.meta.url)));
 
 class AppendFileStream {
     constructor(filePath) {
@@ -16,11 +19,11 @@ class AppendFileStream {
 }
 
 export function createLogger({
-    filePath = 'logs/main.log',
+    filePath = 'mumble-server.log',
     level = process.env.LOG_LEVEL || 'trace',
     stdoutStream = process.stdout
 } = {}) {
-    const fileStream = new AppendFileStream(filePath);
+    const fileStream = new AppendFileStream(path.resolve(ROOT_DIR, filePath));
     const consoleStream =
         stdoutStream === process.stdout
             ? pinoPretty({

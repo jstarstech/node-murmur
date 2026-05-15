@@ -132,6 +132,7 @@ function resolvePath(relativePath) {
 function buildBootstrapResult(serverConfigFile, bootstrapped, superUserPassword = null) {
     return {
         bootstrapped,
+        config: serverConfigFile.config,
         configPath: serverConfigFile.path,
         configSource: serverConfigFile.exists ? 'file' : 'defaults',
         configWarnings: serverConfigFile.warnings,
