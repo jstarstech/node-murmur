@@ -19,6 +19,7 @@ import {
 } from './lib/Acl.js';
 import CryptState from './lib/CryptState.js';
 import { getVoiceKind, getVoiceTarget, rebuildVoicePacket } from './lib/voice.js';
+import { sendUdpPingReply } from './lib/udpPing.js';
 import Config from './models/config.js';
 import Channels from './models/channels.js';
 import ChannelInfo from './models/channel_info.js';
@@ -33,15 +34,6 @@ const log = createLogger();
 const CELT_COMPAT_BITSTREAM = -2147483637;
 const DEFAULT_CHANNEL_NAME_PATTERN = '[ \\-=\\w#\\[\\]\\{\\}\\(\\)@\\|\\.]+';
 const DEFAULT_USERNAME_PATTERN = '[-=\\w\\[\\]\\{\\}\\(\\)@\\|\\.]+';
-
-function clampInt32(value) {
-    const n = Number(value);
-    if (!Number.isFinite(n)) {
-        return 0;
-    }
-
-    return Math.max(-2147483648, Math.min(2147483647, Math.trunc(n)));
-}
 
 async function getChannels(server_id) {
     const channels = {};
@@ -3139,17 +3131,13 @@ async function startServer(server_id) {
                 return;
             }
 
-            const buffer = Buffer.alloc(24);
-            buffer.writeUInt32BE(0x00010204, 0);
-            buffer.writeDoubleBE(message.readDoubleBE(4), 4);
-            buffer.writeInt32BE(clampInt32(getLiveUserCount()), 12);
-            buffer.writeInt32BE(5, 16);
-            buffer.writeInt32BE(clampInt32(serverConfig.bandwidth || 0), 20);
-
-            serverUdp.send(buffer, 0, buffer.length, rinfo.port, rinfo.address, err => {
-                if (err) {
-                    throw err;
-                }
+            sendUdpPingReply({
+                bandwidth: serverConfig.bandwidth,
+                liveUserCount: getLiveUserCount(),
+                log,
+                message,
+                rinfo,
+                serverUdp
             });
             return;
         }
