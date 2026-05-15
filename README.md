@@ -2,6 +2,12 @@
 
 `node-murmur` is a Node.js implementation of a Mumble-compatible voice server.
 
+<p align="">
+  <a href="https://www.npmjs.com/package/node-murmur"><img src="https://img.shields.io/npm/v/node-murmur?style=for-the-badge" alt="NPM Version" /></a>
+  <a href="https://www.npmjs.com/package/node-murmur"><img src="https://img.shields.io/npm/l/node-murmur?style=for-the-badge" alt="MIT License" /></a>
+  <a href="https://github.com/jstarstech/node-murmur"><img src="https://img.shields.io/badge/github-repo-blue?logo=github&style=for-the-badge" alt="Build status" /></a>
+</p>
+
 ## Requirements
 
 - Node.js 24 or newer
@@ -9,22 +15,36 @@
 
 ## Run
 
-Install dependencies:
-
-```bash
-npm install
-```
-
-Start the server:
-
-```bash
-npm start
-```
-
-After publishing, the server can also be run with `npx`:
+Run directly from npm:
 
 ```bash
 npx node-murmur
+```
+
+Or install it globally:
+
+```bash
+npm install -g node-murmur
+node-murmur
+```
+
+Run with Docker from GitHub Container Registry:
+
+```bash
+docker run --rm -it \
+  -p 64738:64738/tcp \
+  -p 64738:64738/udp \
+  -v node-murmur-data:/app/data \
+  ghcr.io/jstarstech/node-murmur:latest
+```
+
+To run from source:
+
+```bash
+git clone https://github.com/jstarstech/node-murmur.git
+cd node-murmur
+npm install
+npm start
 ```
 
 By default, the server keeps runtime state in `data/`:
