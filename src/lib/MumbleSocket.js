@@ -106,10 +106,11 @@ class MumbleSocket {
         this.closed = true;
         this.closeError = error instanceof Error ? error : new Error('Socket is closed');
 
-        while (this.readers.length > 0) {
-            const reader = this.readers.shift();
+        for (const reader of this.readers) {
             reader.reject(this.closeError);
         }
+
+        this.readers.length = 0;
 
         this.buffers.length = 0;
         this.length = 0;

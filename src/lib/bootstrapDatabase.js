@@ -129,6 +129,16 @@ function resolvePath(relativePath) {
     return path.resolve(ROOT_DIR, relativePath);
 }
 
+function buildBootstrapResult(serverConfigFile, bootstrapped, superUserPassword = null) {
+    return {
+        bootstrapped,
+        configPath: serverConfigFile.path,
+        configSource: serverConfigFile.exists ? 'file' : 'defaults',
+        configWarnings: serverConfigFile.warnings,
+        superUserPassword
+    };
+}
+
 function readFileValue(value) {
     if (typeof value !== 'string' || value.length === 0) {
         return value;
@@ -414,13 +424,7 @@ export async function ensureDatabaseReady() {
             await resetBootstrapData();
             const superUser = await seedDatabase(serverConfigFile.config);
 
-            return {
-                bootstrapped: true,
-                configPath: serverConfigFile.path,
-                configSource: serverConfigFile.exists ? 'file' : 'defaults',
-                configWarnings: serverConfigFile.warnings,
-                superUserPassword: superUser.password
-            };
+            return buildBootstrapResult(serverConfigFile, true, superUser.password);
         }
 
         await syncConfigRows(1, serverConfigFile.config);
@@ -428,23 +432,11 @@ export async function ensureDatabaseReady() {
         await ensureSelfRegisterAcl(1);
         const superUser = await ensureSuperUser(1);
 
-        return {
-            bootstrapped: false,
-            configPath: serverConfigFile.path,
-            configSource: serverConfigFile.exists ? 'file' : 'defaults',
-            configWarnings: serverConfigFile.warnings,
-            superUserPassword: superUser.password
-        };
+        return buildBootstrapResult(serverConfigFile, false, superUser.password);
     }
 
     const superUser = await seedDatabase(serverConfigFile.config);
-    return {
-        bootstrapped: true,
-        configPath: serverConfigFile.path,
-        configSource: serverConfigFile.exists ? 'file' : 'defaults',
-        configWarnings: serverConfigFile.warnings,
-        superUserPassword: superUser.password
-    };
+    return buildBootstrapResult(serverConfigFile, true, superUser.password);
 }
 
 export function resolveConfigFileValue(value) {
