@@ -10,4 +10,4 @@ const sequelizeOptions = {
 
 const sequelize = new Sequelize(sequelizeOptions);
 
-export { Sequelize, sequelize };
+export { sequelize };

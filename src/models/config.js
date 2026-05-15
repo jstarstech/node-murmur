@@ -1,5 +1,4 @@
-import { DataTypes } from 'sequelize';
-import { Model } from 'sequelize';
+import { DataTypes, Model } from 'sequelize';
 import { sequelize } from './index.js';
 
 class Config extends Model {}

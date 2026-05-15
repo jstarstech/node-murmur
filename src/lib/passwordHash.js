@@ -26,8 +26,8 @@ function normalizeSha1PasswordHashParts(storedHash) {
         return null;
     }
 
-    const [algorithm, salt, digest] = parts;
-    if (algorithm !== 'sha1' || !salt || !digest) {
+    const [, salt, digest] = parts;
+    if (!salt || !digest) {
         return null;
     }
 

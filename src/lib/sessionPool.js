@@ -5,14 +5,12 @@ class SessionPool {
     }
 
     get() {
-        if (this.reclaimedSessions.length > 0) {
-            return this.reclaimedSessions.pop();
+        const reclaimedSessionId = this.reclaimedSessions.pop();
+        if (reclaimedSessionId !== undefined) {
+            return reclaimedSessionId;
         }
 
-        const sessionId = this.nextSessionId;
-        this.nextSessionId += 1;
-
-        return sessionId;
+        return this.nextSessionId++;
     }
 
     reclaim(sessionId) {

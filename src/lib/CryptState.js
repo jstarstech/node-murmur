@@ -273,7 +273,7 @@ function createMode(mode) {
     }
 }
 
-export const SUPPORTED_MODES = [MODE_OCB2, MODE_XSALSA];
+const SUPPORTED_MODES = [MODE_OCB2, MODE_XSALSA];
 
 export default class CryptState {
     constructor(mode = MODE_OCB2) {

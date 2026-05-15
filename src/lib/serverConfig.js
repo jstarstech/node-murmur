@@ -5,7 +5,7 @@ import { fileURLToPath } from 'url';
 
 const ROOT_DIR = path.dirname(fileURLToPath(new URL('../../package.json', import.meta.url)));
 
-export const SERVER_CONFIG_PATH = path.resolve(ROOT_DIR, 'mumble-server.ini');
+const SERVER_CONFIG_PATH = path.resolve(ROOT_DIR, 'mumble-server.ini');
 
 const DEFAULT_CHANNEL_NAME_PATTERN = '[ \\/\\-=\\w#\\[\\]\\{\\}\\(\\)@\\|\\.]+';
 const DEFAULT_USERNAME_PATTERN = '[-=\\w\\[\\]\\{\\}\\(\\)@\\|\\.]+';

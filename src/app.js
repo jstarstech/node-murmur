@@ -43,7 +43,7 @@ async function getChannels(server_id) {
         },
         raw: true
     }).catch(err => {
-        log.error(new Error(err));
+        log.error({ err }, 'Failed to load channels');
 
         return [];
     });
@@ -54,7 +54,7 @@ async function getChannels(server_id) {
         },
         raw: true
     }).catch(err => {
-        log.error(new Error(err));
+        log.error({ err }, 'Failed to load channel info');
 
         return [];
     });
@@ -990,7 +990,7 @@ async function startServer(server_id) {
             server_id
         }
     }).catch(err => {
-        log.error(new Error(err));
+        log.error({ err }, 'Failed to load server config');
 
         return [];
     });
@@ -1022,11 +1022,11 @@ async function startServer(server_id) {
     const connectionsBySession = new Map();
 
     function disconnectLiveSessionsByRegisteredUserId(userId) {
-        const liveUsers = Object.entries(Users.users).filter(([, user]) => {
-            return user && Number(user.userId) === Number(userId);
-        });
+        for (const user of Object.values(Users.users)) {
+            if (!user || Number(user.userId) !== Number(userId)) {
+                continue;
+            }
 
-        for (const [, user] of liveUsers) {
             const connection = connectionsBySession.get(user.session);
             if (!connection) {
                 continue;
@@ -1089,12 +1089,12 @@ async function startServer(server_id) {
                 udpAddrToConnection.set(getUdpAddrKey(connection.udpaddr), connection);
                 serverUdp.send(encrypted, port, address, err => {
                     if (err) {
-                        log.error(new Error(err));
+                        log.error({ err }, 'Failed to send voice packet');
                     }
                 });
                 return;
             } catch (err) {
-                log.error(new Error(err));
+                log.error({ err }, 'Failed to encrypt voice packet');
             }
         }
 
@@ -1106,7 +1106,7 @@ async function startServer(server_id) {
         if (fallbackRinfo && serverUdp) {
             serverUdp.send(rawPacket, fallbackRinfo.port, fallbackRinfo.address, err => {
                 if (err) {
-                    log.error(new Error(err));
+                    log.error({ err }, 'Failed to send fallback voice packet');
                 }
             });
         }
@@ -2593,7 +2593,7 @@ async function startServer(server_id) {
 
                     Users.emit('broadcast', 'UserState', updatedUser, targetUserId);
                 } catch (err) {
-                    log.error(new Error(err));
+                    log.error({ err }, 'Failed to register user');
                     connection.sendMessage('PermissionDenied', {
                         type: 0,
                         session: actor.session,
@@ -3099,7 +3099,7 @@ async function startServer(server_id) {
                     connection.sendMessage('CryptSetup', response);
                 }
             } catch (err) {
-                log.error(new Error(err));
+                log.error({ err }, 'Failed to process crypt setup');
             }
         });
     });

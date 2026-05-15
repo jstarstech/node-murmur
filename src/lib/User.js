@@ -47,7 +47,7 @@ class User extends EventEmitter {
                 }
             }
         ).catch(err => {
-            this.log.error(new Error(err));
+            this.log.error({ err }, 'Failed to persist last channel');
         });
     }
 
@@ -107,7 +107,7 @@ class User extends EventEmitter {
                     user_id: 0
                 }
             }).catch(err => {
-                this.log.error(new Error(err));
+                this.log.error({ err }, 'Failed to load super user');
 
                 return null;
             });
@@ -140,7 +140,7 @@ class User extends EventEmitter {
                 name: user_data.name
             }
         }).catch(err => {
-            this.log.error(new Error(err));
+            this.log.error({ err }, 'Failed to load named user');
 
             return null;
         });
@@ -153,7 +153,7 @@ class User extends EventEmitter {
                     key: 3
                 }
             }).catch(err => {
-                this.log.error(new Error(err));
+                this.log.error({ err }, 'Failed to load named user certificate');
 
                 return null;
             });
@@ -178,7 +178,7 @@ class User extends EventEmitter {
                     value: user_data.hash
                 }
             }).catch(err => {
-                this.log.error(new Error(err));
+                this.log.error({ err }, 'Failed to load matching certificate');
 
                 return null;
             });
@@ -190,7 +190,7 @@ class User extends EventEmitter {
                         user_id: matchedInfo.user_id
                     }
                 }).catch(err => {
-                    this.log.error(new Error(err));
+                    this.log.error({ err }, 'Failed to load matched user');
 
                     return null;
                 });
@@ -225,7 +225,7 @@ class User extends EventEmitter {
                         user_id: matchedUser.user_id
                     }
                 }).catch(err => {
-                    this.log.error(new Error(err));
+                    this.log.error({ err }, 'Failed to load user info rows');
 
                     return [];
                 });

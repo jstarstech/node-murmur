@@ -3,7 +3,7 @@ import path from 'path';
 import pino from 'pino';
 import pinoPretty from 'pino-pretty';
 
-export class AppendFileStream {
+class AppendFileStream {
     constructor(filePath) {
         this.filePath = filePath;
         fs.mkdirSync(path.dirname(filePath), { recursive: true });
