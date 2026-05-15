@@ -1,9 +1,11 @@
 .DS_Store
 node_modules
-/ssl
+/data/*
+!/data/.gitkeep
 /mumble-server.log
-/mumble-server.sqlite
+/mumble-server.sqlite*
 /mumble-server.ini
+/ssl
 /config/config.json
 /config/default.json
 /config/log4js.json

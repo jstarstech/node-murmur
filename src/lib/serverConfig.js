@@ -1,17 +1,12 @@
 import fs from 'fs';
-import path from 'path';
 import ini from 'ini';
-import { fileURLToPath } from 'url';
+import { DEFAULT_CERT_FILE, DEFAULT_CONFIG_FILE, DEFAULT_KEY_FILE, DEFAULT_LOG_FILE } from './paths.js';
 
-const ROOT_DIR = path.dirname(fileURLToPath(new URL('../../package.json', import.meta.url)));
-
-const SERVER_CONFIG_PATH = path.resolve(ROOT_DIR, 'mumble-server.ini');
+const SERVER_CONFIG_PATH = process.env.CONFIG_FILE || DEFAULT_CONFIG_FILE;
 
 const DEFAULT_CHANNEL_NAME_PATTERN = '[ \\/\\-=\\w#\\[\\]\\{\\}\\(\\)@\\|\\.]+';
 const DEFAULT_USERNAME_PATTERN = '[-=\\w\\[\\]\\{\\}\\(\\)@\\|\\.]+';
 const DEFAULT_WELCOME_TEXT = 'Welcome to this server running Mumble.\nEnjoy your stay!';
-const DEFAULT_SSL_CERT = './ssl/server.cert';
-const DEFAULT_SSL_KEY = './ssl/server.key';
 
 const SCHEMA = {
     allowhtml: { type: 'bool', default: true },
@@ -39,7 +34,7 @@ const SCHEMA = {
     imagemessagelength: { type: 'int', default: 1048576, min: 0 },
     kdfiterations: { type: 'int', default: -1, min: -1 },
     legacypasswordhash: { type: 'bool', default: false },
-    logfile: { type: 'string', default: 'mumble-server.log' },
+    logfile: { type: 'string', default: DEFAULT_LOG_FILE },
     logaclchanges: { type: 'bool', default: false },
     logdays: { type: 'int', default: 31, min: -1 },
     loggroupchanges: { type: 'bool', default: false },
@@ -62,13 +57,13 @@ const SCHEMA = {
     serverpassword: { type: 'string', default: '' },
     sqlite_wal: { type: 'int', default: 0, min: 0, max: 2 },
     sslCA: { type: 'string', default: '' },
-    sslCert: { type: 'string', default: DEFAULT_SSL_CERT },
+    sslCert: { type: 'string', default: DEFAULT_CERT_FILE },
     sslCiphers: {
         type: 'string',
         default: 'EECDH+AESGCM:EDH+aRSA+AESGCM:DHE-RSA-AES256-SHA:DHE-RSA-AES128-SHA:AES256-SHA:AES128-SHA'
     },
     sslDHParams: { type: 'string', default: '@ffdhe2048' },
-    sslKey: { type: 'string', default: DEFAULT_SSL_KEY },
+    sslKey: { type: 'string', default: DEFAULT_KEY_FILE },
     sslPassPhrase: { type: 'string', default: '' },
     suggestPositional: { type: 'string', default: '' },
     suggestPushToTalk: { type: 'string', default: '' },

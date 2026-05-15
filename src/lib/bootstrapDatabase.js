@@ -1,14 +1,10 @@
 import fs from 'fs';
 import path from 'path';
-import { fileURLToPath } from 'url';
 import { sequelize } from '../models/index.js';
 import { generateSelfSignedCert } from './selfSignedCert.js';
 import { createSaltedSha1PasswordHash, generateSuperUserPassword } from './passwordHash.js';
 import { loadServerConfig } from './serverConfig.js';
-
-const ROOT_DIR = path.dirname(fileURLToPath(new URL('../../package.json', import.meta.url)));
-const DEFAULT_CERT_PATH = './ssl/server.cert';
-const DEFAULT_KEY_PATH = './ssl/server.key';
+import { DEFAULT_CERT_FILE, DEFAULT_KEY_FILE, resolveFromRoot } from './paths.js';
 
 const SCHEMA_STATEMENTS = [
     `CREATE TABLE IF NOT EXISTS servers (
@@ -126,7 +122,7 @@ const SCHEMA_STATEMENTS = [
 ];
 
 function resolvePath(relativePath) {
-    return path.resolve(ROOT_DIR, relativePath);
+    return resolveFromRoot(relativePath);
 }
 
 function buildBootstrapResult(serverConfigFile, bootstrapped, superUserPassword = null) {
@@ -328,8 +324,8 @@ async function ensureSuperUser(serverId, transaction) {
 }
 
 async function normalizeExistingServerCertificates(serverId) {
-    const certAbsPath = resolvePath(DEFAULT_CERT_PATH);
-    const keyAbsPath = resolvePath(DEFAULT_KEY_PATH);
+    const certAbsPath = resolvePath(DEFAULT_CERT_FILE);
+    const keyAbsPath = resolvePath(DEFAULT_KEY_FILE);
     const config = await loadServerCertConfig(serverId);
     const certificate = config.get('sslCert');
     const privateKey = config.get('sslKey');
@@ -344,7 +340,7 @@ async function normalizeExistingServerCertificates(serverId) {
         fs.mkdirSync(path.dirname(keyAbsPath), { recursive: true });
         fs.writeFileSync(certAbsPath, certificate);
         fs.writeFileSync(keyAbsPath, privateKey);
-        await storeServerCertConfig(serverId, DEFAULT_CERT_PATH, DEFAULT_KEY_PATH);
+        await storeServerCertConfig(serverId, DEFAULT_CERT_FILE, DEFAULT_KEY_FILE);
         return;
     }
 
@@ -361,18 +357,18 @@ async function normalizeExistingServerCertificates(serverId) {
 
     if (!certExists && !keyExists) {
         generateSelfSignedCert(certAbsPath, keyAbsPath);
-        await storeServerCertConfig(serverId, DEFAULT_CERT_PATH, DEFAULT_KEY_PATH);
+        await storeServerCertConfig(serverId, DEFAULT_CERT_FILE, DEFAULT_KEY_FILE);
         return;
     }
 
     throw new Error(
-        'Missing bootstrap TLS material. Expected ssl/server.cert and ssl/server.key to both exist or both be absent.'
+        `Missing bootstrap TLS material. Expected ${DEFAULT_CERT_FILE} and ${DEFAULT_KEY_FILE} to both exist or both be absent.`
     );
 }
 
 async function seedDatabase(serverConfig) {
-    const certAbsPath = resolvePath(DEFAULT_CERT_PATH);
-    const keyAbsPath = resolvePath(DEFAULT_KEY_PATH);
+    const certAbsPath = resolvePath(DEFAULT_CERT_FILE);
+    const keyAbsPath = resolvePath(DEFAULT_KEY_FILE);
 
     const certExists = fs.existsSync(certAbsPath) && fs.statSync(certAbsPath).isFile();
     const keyExists = fs.existsSync(keyAbsPath) && fs.statSync(keyAbsPath).isFile();
@@ -381,7 +377,7 @@ async function seedDatabase(serverConfig) {
         generateSelfSignedCert(certAbsPath, keyAbsPath);
     } else if (!certExists || !keyExists) {
         throw new Error(
-            'Missing bootstrap TLS material. Expected ssl/server.cert and ssl/server.key to both exist or both be absent.'
+            `Missing bootstrap TLS material. Expected ${DEFAULT_CERT_FILE} and ${DEFAULT_KEY_FILE} to both exist or both be absent.`
         );
     }
 

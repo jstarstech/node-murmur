@@ -1,0 +1,15 @@
+.git
+.gitignore
+.DS_Store
+node_modules
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+mumble-server.ini
+mumble-server.log
+mumble-server.sqlite*
+data/*
+ssl
+logs
+test

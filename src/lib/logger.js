@@ -1,10 +1,8 @@
 import fs from 'fs';
 import path from 'path';
-import { fileURLToPath } from 'url';
 import pino from 'pino';
 import pinoPretty from 'pino-pretty';
-
-const ROOT_DIR = path.dirname(fileURLToPath(new URL('../../package.json', import.meta.url)));
+import { DEFAULT_LOG_FILE, ROOT_DIR } from './paths.js';
 
 class AppendFileStream {
     constructor(filePath) {
@@ -19,7 +17,7 @@ class AppendFileStream {
 }
 
 export function createLogger({
-    filePath = 'mumble-server.log',
+    filePath = process.env.LOG_FILE || DEFAULT_LOG_FILE,
     level = process.env.LOG_LEVEL || 'trace',
     stdoutStream = process.stdout
 } = {}) {

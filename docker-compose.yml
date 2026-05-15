@@ -1,0 +1,13 @@
+services:
+  node-murmur:
+    build:
+      context: .
+    restart: unless-stopped
+    ports:
+      - "64738:64738/tcp"
+      - "64738:64738/udp"
+    volumes:
+      - node-murmur-data:/app/data
+
+volumes:
+  node-murmur-data:

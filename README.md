@@ -21,7 +21,16 @@ Start the server:
 npm start
 ```
 
-By default, the server uses `mumble-server.ini` for config if it exists. If not, it starts with built-in defaults.
+By default, the server keeps runtime state in `data/`:
+
+- `data/mumble-server.ini` for optional server config
+- `data/mumble-server.sqlite` for SQLite storage
+- `data/mumble-server.log` for logs
+- `data/server.cert` and `data/server.key` for generated TLS
+
+If `data/mumble-server.ini` is missing, the server starts with built-in defaults.
+
+The config, database, and log paths can be overridden with the `CONFIG_FILE`, `DB_STORAGE`, and `LOG_FILE` environment variables.
 
 ## Development
 
