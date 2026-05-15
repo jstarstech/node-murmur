@@ -146,38 +146,6 @@ if (process.env.MUMBLE_TRACE) {
     };
 }
 
-export const celtVersions = {
-    v0_7_0: -2147483637, //  0x8000000b,
-    v0_8_0: -2147483636, //  0x8000000b,
-    v0_9_0: -2147483634, //  0x8000000b,
-    v0_10_0: -2147483633, //  0x8000000b,
-    v0_11_0: -2147483632 //  0x8000000b,
-};
-
-const permissions = Object.freeze({
-    None: 0x00,
-    Write: 0x01,
-    Traverse: 0x02,
-    Enter: 0x04,
-    Speak: 0x08,
-    MuteDeafen: 0x10,
-    Move: 0x20,
-    MakeChannel: 0x40,
-    LinkChannel: 0x80,
-    Whisper: 0x100,
-    TextMessage: 0x200,
-    MakeTempChannel: 0x400,
-
-    // Root only
-    Kick: 0x10000,
-    Ban: 0x20000,
-    Register: 0x40000,
-    SelfRegister: 0x80000,
-
-    Cached: 0x8000000,
-    All: 0xf07ff
-});
-
 /**
  * Encodes the version to an uint8 that can be sent to the server for version-exchange
  **/
@@ -189,42 +157,6 @@ export function encodeVersion(major, minor, patch) {
         ((minor & 0xff) << 8) |
         (patch & 0xff)
     );
-}
-
-/**
- * @summary Read permission flags into a permission object.
- *
- * @param {Number} permissionFlags - Permission bit flags
- * @returns {Object} Permission object with the bit flags decoded.
- */
-export function readPermissions(permissionFlags) {
-    const result = {};
-    for (const p in permissions) {
-        const mask = permissions[p];
-
-        // Ignore the 'None' field.
-        if (!mask) continue;
-
-        result[p] = (permissionFlags & mask) === mask;
-    }
-
-    return result;
-}
-
-/**
- * @summary Write permission flags into a permission object.
- *
- * @param {Object} permissionObject - Permissions object
- * @returns {Number} Permission bit flags
- */
-export function writePermissions(permissionObject) {
-    let flags = 0;
-    for (const p in permissions) {
-        if (permissionObject[p]) {
-            flags |= permissions[p];
-        }
-    }
-    return flags;
 }
 
 function toDelimitedName(field, delimiter) {
@@ -260,34 +192,6 @@ export function toFieldName(field) {
     return toDelimitedName(field, '_');
 }
 
-export function findByValue(collection, field, value) {
-    // Check the collection for an item that has the value in the field.
-    for (let key in collection) {
-        let item = collection[key];
-        if (item[field] === value) return item;
-    }
-
-    // Not found. Return undefined.
-}
-
-export function removeFrom(collection, item) {
-    let index = collection.indexOf(item);
-    if (index !== -1) collection.splice(index, 1);
-}
-
-/**
- * Applies gain to the audio rame.
- *
- * @param {Buffer} frame - Audio frame with 16-bit samples.
- * @param {Number} gain - Multiplier for each sample.
- */
-export function applyGain(frame, gain) {
-    for (let i = 0; i < frame.length; i += 2) {
-        frame.writeInt16LE(Math.floor(frame.readInt16LE(i) * gain), i);
-    }
-    return frame;
-}
-
 /**
  * Downmixes multi-channel frame to mono.
  *
@@ -314,87 +218,3 @@ export function downmixChannels(frame, channels) {
 
     return monoFrame;
 }
-
-/**
- * @summary Resamples the frame.
- *
- * @description
- * The resampling is done by duplicating samples sometimes, so it's not
- * the best quality. Also, the source/target rate conversion must result in a
- * whole number of samples for the frame size.
- *
- * @param {Buffer} frame - Original frame
- * @param {Number} sourceRate - Original sample rate
- * @param {Number} targetRate - Target sample rate
- */
-export function resample(frame, sourceRate, targetRate) {
-    let targetFrame = Buffer.alloc((frame.length * targetRate) / sourceRate);
-
-    for (let t = 0; t < targetFrame.length / 2; t++) {
-        let targetDuration = t / targetRate;
-        let sourceDuration = Math.floor(targetDuration * sourceRate);
-        let sourceIndex = sourceDuration * 2;
-        targetFrame.writeInt16LE(frame.readInt16LE(sourceIndex), t * 2);
-    }
-
-    return targetFrame;
-}
-
-/**
- * @summary Rescales the frame.
- *
- * @description
- * Assuming both source and target Bit depth are multiples of eight, this function rescales the
- * frame. E.g. it can be used to make a 16-Bit audio frame of an 8-Bit audio frame.
- *
- * @param {Buffer} frame - Original frame
- * @param {Number} sourceDepth - Original Bit depth
- * @param {Boolean} sourceUnsigned - whether the source values are unsigned
- * @param {Boolean} sourceBE - whether the source values are big endian
- */
-export function rescaleToUInt16LE(frame, sourceDepth, sourceUnsigned, sourceBE) {
-    if (sourceDepth === 16 && !sourceUnsigned && !sourceBE) {
-        return frame;
-    }
-
-    if (sourceDepth !== 8 && sourceDepth !== 16 && sourceDepth !== 32) {
-        throw new Error(`unsupported source depth ${sourceDepth}`);
-    }
-
-    let targetFrame = Buffer.alloc((frame.length * 16) / sourceDepth);
-
-    let readFunc =
-        frame[
-            `read${sourceUnsigned ? 'U' : ''}Int${sourceDepth}${sourceDepth !== 8 ? (sourceBE ? 'BE' : 'LE') : ''}`
-        ].bind(frame);
-
-    let srcSize = 2 ** sourceDepth - 1;
-    let srcOffset = sourceUnsigned ? 0 : (srcSize + 1) / -2;
-
-    let tgtSize = sourceUnsigned ? 32767 : 65535;
-    let tgtOffset = sourceUnsigned ? 0 : (tgtSize + 1) / -2;
-
-    let factor = tgtSize / srcSize;
-
-    let siStep = sourceDepth / 8;
-    for (let si = 0, ti = 0; si < frame.length; si += siStep, ti += 2) {
-        targetFrame.writeInt16LE(Math.round(tgtOffset + (readFunc(si) - srcOffset) * factor), ti);
-    }
-
-    return targetFrame;
-}
-
-// Gather all versions and fix the values at the same time.
-const allVersions = [];
-for (const i in celtVersions) {
-    allVersions.push(celtVersions[i]);
-}
-
-export default {
-    ...celtVersions,
-    all: allVersions,
-    default: celtVersions.v0_7_0,
-    trace,
-    dir,
-    warn
-};
