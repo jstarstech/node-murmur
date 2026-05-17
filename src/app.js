@@ -1245,6 +1245,13 @@ async function startServer(server_id) {
         codecState.opus = enableOpus;
 
         if (changed) {
+            const alphaHex = (codecState.alpha >>> 0).toString(16).padStart(16, 'f');
+            const betaHex = (codecState.beta >>> 0).toString(16).padStart(16, 'f');
+            const preferHex = codecState.preferAlpha ? alphaHex : betaHex;
+            log.info(
+                `CELT codec switch ${alphaHex} ${betaHex} (prefer ${preferHex}) (Opus ${codecState.opus ? 1 : 0})`
+            );
+
             for (const connection of connectionsBySession.values()) {
                 if (!connection || !isActiveConnectionState(connection.state)) {
                     continue;
