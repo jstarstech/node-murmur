@@ -3356,6 +3356,14 @@ if (bootstrap.configSource === 'defaults') {
         },
         'Server config file not found; using defaults'
     );
+} else {
+    log.withDetails(
+        'info',
+        {
+            configPath: bootstrap.configPath
+        },
+        `Initializing settings from: ${bootstrap.configPath}`
+    );
 }
 
 for (const warning of bootstrap.configWarnings || []) {
