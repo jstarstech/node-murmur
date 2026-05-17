@@ -1702,6 +1702,21 @@ async function startServer(server_id) {
         broadcastChannelState(channels[Number(updatedChannel.channel_id)]);
     }
 
+    function isChannelDescendantOf(channelId, ancestorId) {
+        let current = channels[Number(channelId)];
+        const target = Number(ancestorId);
+        while (current) {
+            if (Number(current.channel_id) === target) {
+                return true;
+            }
+            if (current.parent_id === null || current.parent_id === undefined) {
+                break;
+            }
+            current = channels[Number(current.parent_id)];
+        }
+        return false;
+    }
+
     function collectChannelSubtree(channelId) {
         const targetId = Number(channelId);
         const ordered = [];
@@ -2045,8 +2060,20 @@ async function startServer(server_id) {
                 }
             }
 
-            if (type === 'TextMessage' && !message.channelId.includes(Users.getUser(uid).channelId)) {
-                return;
+            if (type === 'TextMessage') {
+                const user = Users.getUser(uid);
+                const userSession = user.session;
+                const userChannelId = user.channelId;
+
+                const isTargetSession = Array.isArray(message.session) && message.session.includes(userSession);
+                const isTargetChannel = Array.isArray(message.channelId) && message.channelId.includes(userChannelId);
+                const isTargetTree =
+                    Array.isArray(message.treeId) &&
+                    message.treeId.some(rootId => isChannelDescendantOf(userChannelId, rootId));
+
+                if (!isTargetSession && !isTargetChannel && !isTargetTree) {
+                    return;
+                }
             }
 
             if (type === 'UserState') {
@@ -2159,20 +2186,75 @@ async function startServer(server_id) {
             );
         });
 
-        connection.on('textMessage', ({ channelId, message }) => {
+        connection.on('textMessage', m => {
             if (connection.state !== 'ready') {
                 return;
             }
 
-            if (channelId.length === 0) {
+            const message = m.message;
+            if (typeof message !== 'string' || message.length === 0) {
                 return;
             }
 
+            const user = Users.getUser(uid);
+            const sessions = Array.isArray(m.session) ? m.session : [];
+            const channelIds = Array.isArray(m.channelId) ? m.channelId : [];
+            const treeIds = Array.isArray(m.treeId) ? m.treeId : [];
+
+            if (sessions.length === 0 && channelIds.length === 0 && treeIds.length === 0) {
+                return;
+            }
+
+            // Permission checks
+            for (const channelId of channelIds) {
+                const perms = computePermissions(channelId, user, channels, aclState);
+                if ((perms & PERMISSIONS.TextMessage) !== PERMISSIONS.TextMessage) {
+                    connection.sendMessage('PermissionDenied', {
+                        type: 1,
+                        permission: PERMISSIONS.TextMessage,
+                        channelId,
+                        session: user.session,
+                        reason: 'Permission denied'
+                    });
+                    return;
+                }
+            }
+
+            for (const treeId of treeIds) {
+                const perms = computePermissions(treeId, user, channels, aclState);
+                if ((perms & PERMISSIONS.TextMessage) !== PERMISSIONS.TextMessage) {
+                    connection.sendMessage('PermissionDenied', {
+                        type: 1,
+                        permission: PERMISSIONS.TextMessage,
+                        channelId: treeId,
+                        session: user.session,
+                        reason: 'Permission denied'
+                    });
+                    return;
+                }
+            }
+
+            if (sessions.length > 0) {
+                // Direct messages often require TextMessage on Root or similar.
+                // For simplicity, we check TextMessage on the user's current channel.
+                const perms = computePermissions(user.channelId, user, channels, aclState);
+                if ((perms & PERMISSIONS.TextMessage) !== PERMISSIONS.TextMessage) {
+                    connection.sendMessage('PermissionDenied', {
+                        type: 1,
+                        permission: PERMISSIONS.TextMessage,
+                        channelId: user.channelId,
+                        session: user.session,
+                        reason: 'Permission denied'
+                    });
+                    return;
+                }
+            }
+
             const ms = {
-                actor: Users.getUser(uid).session,
-                session: [],
-                channelId,
-                treeId: [],
+                actor: user.session,
+                session: sessions,
+                channelId: channelIds,
+                treeId: treeIds,
                 message
             };
 
