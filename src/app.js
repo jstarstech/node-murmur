@@ -3361,7 +3361,6 @@ log.info(`* ${'Documentation and issue tracking: https://github.com/jstarstech/n
 log.info('********************************************************************************');
 
 const serverIds = await getServerIds();
-const primaryServerId = serverIds[0] ?? 1;
 
 if (bootstrap.configSource === 'defaults') {
     log.withDetails(
