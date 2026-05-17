@@ -28,6 +28,7 @@ import { sequelize } from './models/index.js';
 import { ensureDatabaseReady, resolveConfigFileValue } from './lib/bootstrapDatabase.js';
 import { DEFAULT_SERVER_CONFIG, coerceServerConfigValue } from './lib/serverConfig.js';
 import { createLogger } from './lib/logger.js';
+import { DATA_DIR } from './lib/paths.js';
 import pkg from '../package.json' with { type: 'json' };
 
 let log = createLogger();
@@ -3461,6 +3462,8 @@ if (bootstrap.configSource === 'defaults') {
         `Initializing settings from: ${bootstrap.configPath}`
     );
 }
+
+log.info(`Data directory: ${DATA_DIR}`);
 
 for (const warning of bootstrap.configWarnings || []) {
     log.warn(warning);
