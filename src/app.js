@@ -2066,14 +2066,24 @@ async function startServer(server_id) {
         Users.on('broadcast_audio', broadcastAudio);
 
         connection.on('error', err => {
-            log.error({ err }, 'User disconnected');
+            if (err?.message === 'Socket is closed') {
+                return;
+            }
+
+            connectionCloseError = err;
+            if (err?.message === 'Socket timed out') {
+                return;
+            }
+
+            const userLogPrefix = formatUserLogPrefix();
+            log.error({ err }, userLogPrefix ? `${userLogPrefix} Connection error` : 'Connection error');
         });
 
         connection.on('disconnect', async () => {
-            log.info('User disconnected');
-
             const user = Users.getUser(uid);
             if (user.session) {
+                log.info(`${formatUserLogPrefix(user)} User disconnected`);
+
                 const sessionId = user.session;
                 const removalInfo = connection.removalInfo || {};
                 Users.emit(
@@ -2101,11 +2111,24 @@ async function startServer(server_id) {
             }
 
             if (
+                !user.session &&
+                connection.sessionId !== undefined &&
+                connection.sessionId !== null &&
+                connectionsBySession.get(connection.sessionId) !== connection
+            ) {
+                logPreAuthConnectionClosed();
+                Users.releaseSession(connection.sessionId);
+                connection.sessionId = null;
+            }
+
+            if (
                 connection.sessionId !== undefined &&
                 connection.sessionId !== null &&
                 connectionsBySession.get(connection.sessionId) === connection
             ) {
                 connectionsBySession.delete(connection.sessionId);
+                Users.releaseSession(connection.sessionId);
+                connection.sessionId = null;
             }
 
             if (connection.voiceTargets) {
