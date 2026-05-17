@@ -1400,7 +1400,22 @@ async function startServer(server_id) {
         const temporaryProvided = Object.prototype.hasOwnProperty.call(m, 'temporary');
         const isTemporary = temporaryProvided ? Boolean(m.temporary) : false;
         const descriptionProvided = Object.prototype.hasOwnProperty.call(m, 'description');
-        const descriptionValue = descriptionProvided && typeof m.description === 'string' ? m.description : null;
+        let descriptionValue = descriptionProvided && typeof m.description === 'string' ? m.description : null;
+
+        if (descriptionProvided && !serverConfig.allowhtml && descriptionValue) {
+            descriptionValue = util.stripHtml(descriptionValue);
+        }
+
+        if (
+            descriptionValue &&
+            serverConfig.textmessagelength > 0 &&
+            descriptionValue.length > serverConfig.textmessagelength
+        ) {
+            const error = new Error('Description too long');
+            error.code = 'description_too_long';
+            throw error;
+        }
+
         const positionProvided = Object.prototype.hasOwnProperty.call(m, 'position');
         const linksProvided = Array.isArray(m.linksAdd) || Array.isArray(m.linksRemove);
         const currentChannel = isCreate ? null : channels[requestedChannelId];
@@ -2202,6 +2217,23 @@ async function startServer(server_id) {
             const channelIds = Array.isArray(m.channelId) ? m.channelId : [];
             const treeIds = Array.isArray(m.treeId) ? m.treeId : [];
 
+            let processedMessage = message;
+            if (!serverConfig.allowhtml) {
+                processedMessage = util.stripHtml(message);
+            }
+
+            if (serverConfig.textmessagelength > 0 && processedMessage.length > serverConfig.textmessagelength) {
+                connection.sendMessage('PermissionDenied', {
+                    type: 1,
+                    reason: 'Message too long'
+                });
+                return;
+            }
+
+            if (processedMessage.length === 0) {
+                return;
+            }
+
             if (sessions.length === 0 && channelIds.length === 0 && treeIds.length === 0) {
                 return;
             }
@@ -2256,7 +2288,7 @@ async function startServer(server_id) {
                 session: sessions,
                 channelId: channelIds,
                 treeId: treeIds,
-                message
+                message: processedMessage
             };
 
             Users.emit('broadcast', 'TextMessage', ms, uid);
@@ -2972,7 +3004,19 @@ async function startServer(server_id) {
             }
 
             if (commentProvided) {
-                const comment = typeof m.comment === 'string' ? m.comment : '';
+                let comment = typeof m.comment === 'string' ? m.comment : '';
+
+                if (!serverConfig.allowhtml) {
+                    comment = util.stripHtml(comment);
+                }
+
+                if (serverConfig.textmessagelength > 0 && comment.length > serverConfig.textmessagelength) {
+                    connection.sendMessage('PermissionDenied', {
+                        type: 1,
+                        reason: 'Comment too long'
+                    });
+                    return;
+                }
 
                 if (comment.length === 0) {
                     if (target.userId !== null && target.userId !== undefined) {
@@ -3253,6 +3297,15 @@ async function startServer(server_id) {
                         channelId: err.channelId || 0,
                         session: user.session,
                         reason: 'Permission denied'
+                    });
+                    return;
+                }
+
+                if (err.code === 'description_too_long') {
+                    connection.sendMessage('PermissionDenied', {
+                        type: 1,
+                        session: user.session,
+                        reason: 'Description too long'
                     });
                     return;
                 }

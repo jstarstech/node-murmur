@@ -86,6 +86,8 @@ You can customize the server by adding these keys to your `mumble-server.ini`:
 - `welcometext`: Message displayed to users upon connection
 - `users`: Maximum number of concurrent users
 - `serverpassword`: Password required to connect to the server
+- `allowhtml`: Whether to allow HTML in messages, comments, and descriptions (default: `true`)
+- `textmessagelength`: Maximum length for text messages, comments, and descriptions (default: `5000`)
 
 #### Example Configuration (`mumble-server.ini`)
 
@@ -102,10 +104,14 @@ users=100
 # Password required to connect to the server (uncomment to enable)
 # serverpassword=mypassword
 
-# Allow HTML in welcome text and channel descriptions
+# Allow HTML in welcome text and channel descriptions (default: true)
+# If disabled, the server strips HTML tags from messages, comments, and descriptions
 allowhtml=true
 
-# Bandwidth limit in bits per second
+# Maximum length for text messages, comments, and descriptions (default: 5000)
+textmessagelength=5000
+
+# Bandwidth limit in bits per second (default: 558000)
 bandwidth=558000
 ```
 

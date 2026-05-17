@@ -189,6 +189,30 @@ export function toFieldName(field) {
 }
 
 /**
+ * Strips HTML tags from a string, replacing <br> and </p> with newlines.
+ *
+ * @param {string} text - The text to strip HTML from.
+ * @returns {string} The stripped text.
+ */
+export function stripHtml(text) {
+    if (typeof text !== 'string') {
+        return text;
+    }
+
+    if (!text.includes('<')) {
+        return text.trim();
+    }
+
+    return text
+        .replace(/<br\s*\/?>/gi, '\n')
+        .replace(/<p\s*\/?>/gi, '\n')
+        .replace(/<\/p>/gi, '\n')
+        .replace(/<[^>]*>?/gm, '')
+        .replace(/\n\n+/g, '\n')
+        .trim();
+}
+
+/**
  * Downmixes multi-channel frame to mono.
  *
  * @param {Buffer} frame - Multi-channel audio frame.

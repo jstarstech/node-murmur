@@ -1,6 +1,16 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { downmixChannels, fromVarint, toEventName, toFieldName, toVarint } from '../src/lib/util.js';
+import { downmixChannels, fromVarint, stripHtml, toEventName, toFieldName, toVarint } from '../src/lib/util.js';
+
+test('stripHtml removes tags and handles newlines', () => {
+    const input = 'Hello<br />World<p>Paragraph</p><b>Bold</b>';
+    const expected = 'Hello\nWorld\nParagraph\nBold';
+    assert.equal(stripHtml(input), expected);
+});
+
+test('stripHtml returns trimmed plain text as-is', () => {
+    assert.equal(stripHtml('  no tags  '), 'no tags');
+});
 
 test('toVarint rejects non-integer values', () => {
     assert.throws(() => toVarint(1.5), TypeError);
