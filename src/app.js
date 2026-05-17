@@ -1066,8 +1066,8 @@ async function startServer(server_id) {
     const contextActions = new Map();
     const udpAddrToConnection = new Map();
     const codecState = {
-        alpha: CELT_COMPAT_BITSTREAM,
-        beta: CELT_COMPAT_BITSTREAM,
+        alpha: 0,
+        beta: 0,
         preferAlpha: true,
         opus: false
     };
@@ -1245,12 +1245,11 @@ async function startServer(server_id) {
         codecState.opus = enableOpus;
 
         if (changed) {
-            const alphaHex = (codecState.alpha >>> 0).toString(16).padStart(16, 'f');
-            const betaHex = (codecState.beta >>> 0).toString(16).padStart(16, 'f');
+            const formatHex = val => (val === 0 ? '0' : (BigInt(val) & 0xffffffffffffffffn).toString(16));
+            const alphaHex = formatHex(codecState.alpha);
+            const betaHex = formatHex(codecState.beta);
             const preferHex = codecState.preferAlpha ? alphaHex : betaHex;
-            log.info(
-                `CELT codec switch ${alphaHex} ${betaHex} (prefer ${preferHex}) (Opus ${codecState.opus ? 1 : 0})`
-            );
+            log.info(`CELT codec switch ${alphaHex} ${betaHex} (prefer ${preferHex}) (Opus ${codecState.opus ? 1 : 0})`);
 
             for (const connection of connectionsBySession.values()) {
                 if (!connection || !isActiveConnectionState(connection.state)) {
