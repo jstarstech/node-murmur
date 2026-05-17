@@ -22,7 +22,7 @@ class User extends EventEmitter {
         this.log = log;
         this.options = options || {};
         this.serverId = Number(this.options.serverId || 1);
-        this.sessionPool = this.options.sessionPool || new SessionPool();
+        this.sessionPool = this.options.sessionPool || new SessionPool(this.options.maxUsers);
         this.id = 100;
     }
 

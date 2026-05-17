@@ -1,11 +1,26 @@
 class SessionPool {
-    constructor() {
-        this.nextSessionId = 1;
-        this.reclaimedSessions = [];
+    constructor(maxUsers = 100) {
+        this.availableSessions = [];
+        this.configure(maxUsers);
+    }
+
+    configure(maxUsers = 100) {
+        const normalizedMaxUsers = Number(maxUsers) || 100;
+        const maxSessionId = Math.max(1, normalizedMaxUsers * 2 - 1);
+        this.availableSessions = [];
+
+        for (let sessionId = 1; sessionId <= maxSessionId; sessionId += 1) {
+            this.availableSessions.push(sessionId);
+        }
     }
 
     get() {
-        return this.reclaimedSessions.pop() ?? this.nextSessionId++;
+        const sessionId = this.availableSessions.shift();
+        if (sessionId === undefined) {
+            throw new Error('Session ID pool exhausted');
+        }
+
+        return sessionId;
     }
 
     reclaim(sessionId) {
@@ -14,7 +29,7 @@ class SessionPool {
             return;
         }
 
-        this.reclaimedSessions.push(normalizedSessionId);
+        this.availableSessions.push(normalizedSessionId);
     }
 }
 
