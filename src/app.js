@@ -1945,6 +1945,8 @@ async function startServer(server_id) {
         let uid;
         let auth = false;
         let ready = false;
+        let attemptedUsername = '';
+        let connectionCloseError = null;
 
         let sessionId;
         try {
