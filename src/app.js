@@ -3437,11 +3437,12 @@ async function startServer(server_id) {
 const bootstrap = await ensureDatabaseReady();
 log = createLogger({ filePath: bootstrap.config?.logfile || DEFAULT_SERVER_CONFIG.logfile });
 
-log.info('********************************************************************************');
-log.info(`* ${`node-murmur v${pkg.version}`.padEnd(76)} *`);
-log.info(`* ${'A Mumble-compatible voice server implementation'.padEnd(76)} *`);
-log.info(`* ${'Documentation and issue tracking: https://github.com/jstarstech/node-murmur'.padEnd(76)} *`);
-log.info('********************************************************************************');
+log.info('******************************************************');
+log.info(`* ${`node-murmur v${pkg.version}`.padEnd(50)} *`);
+log.info(`* ${'A Mumble-compatible voice server implementation'.padEnd(50)} *`);
+log.info(`* ${'Documentation and issue tracking:'.padEnd(50)} *`);
+log.info(`* ${'https://github.com/jstarstech/node-murmur'.padEnd(50)} *`);
+log.info('******************************************************');
 
 const serverIds = await getServerIds();
 
