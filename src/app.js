@@ -1024,6 +1024,7 @@ async function startServer(server_id) {
 
     const Users = new User(log, {
         serverId: server_id,
+        maxUsers: serverConfig.users || DEFAULT_SERVER_CONFIG.users,
         serverPassword: serverConfig.serverpassword,
         usernameValidator
     });
@@ -1940,18 +1941,26 @@ async function startServer(server_id) {
         socket.setTimeout(10000);
         socket.setNoDelay(true);
 
-        log.withDetails('info', { authorized: socket.authorized }, 'TLS client authorized');
-
-        if (!socket.authorized) {
-            log.withDetails('info', { authorizationError: socket.authorizationError }, 'TLS authorization error');
-        }
-
         let uid;
         let auth = false;
         let ready = false;
+
+        let sessionId;
+        try {
+            sessionId = Users.sessionPool.get();
+        } catch (err) {
+            log.error(
+                { err },
+                `Session ID pool (${serverConfig.users || DEFAULT_SERVER_CONFIG.users}) empty, rejecting connection`
+            );
+            socket.destroy();
+            return;
+        }
+
         const connection = new MumbleConnection(socket, Users);
         connection.connectedAt = Date.now();
         connection.lastActivityAt = connection.connectedAt;
+        connection.sessionId = sessionId;
         connection.voiceTargets = new Map();
         connection.clientCryptoModes = [];
         connection.clientCeltVersions = [];
@@ -2892,6 +2901,8 @@ async function startServer(server_id) {
                 return;
             }
 
+            const pendingUser = Users.getUser(authResult.id);
+            pendingUser.session = connection.sessionId;
             const activeUser = Users.activateUser(authResult.id);
 
             uid = authResult.id;
