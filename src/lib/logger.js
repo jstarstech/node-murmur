@@ -18,7 +18,7 @@ class AppendFileStream {
 
 export function createLogger({
     filePath = process.env.LOG_FILE || DEFAULT_LOG_FILE,
-    level = process.env.LOG_LEVEL || 'trace',
+    level = process.env.LOG_LEVEL || 'info',
     stdoutStream = process.stdout
 } = {}) {
     const fileStream = new AppendFileStream(path.resolve(ROOT_DIR, filePath));
@@ -34,7 +34,7 @@ export function createLogger({
         { level: 'trace', stream: fileStream }
     ]);
 
-    return pino(
+    const logger = pino(
         {
             base: undefined,
             level,
@@ -42,4 +42,15 @@ export function createLogger({
         },
         streams
     );
+
+    logger.withDetails = (logLevel, details, message) => {
+        if (logger.isLevelEnabled('debug')) {
+            logger[logLevel](details, message);
+            return;
+        }
+
+        logger[logLevel](message);
+    };
+
+    return logger;
 }

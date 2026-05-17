@@ -1940,10 +1940,10 @@ async function startServer(server_id) {
         socket.setTimeout(10000);
         socket.setNoDelay(true);
 
-        log.info({ authorized: socket.authorized }, 'TLS client authorized');
+        log.withDetails('info', { authorized: socket.authorized }, 'TLS client authorized');
 
         if (!socket.authorized) {
-            log.info({ authorizationError: socket.authorizationError }, 'TLS authorization error');
+            log.withDetails('info', { authorizationError: socket.authorizationError }, 'TLS authorization error');
         }
 
         let uid;
@@ -2318,7 +2318,7 @@ async function startServer(server_id) {
                 channelId: Number(m.channelId || 0) || null
             };
 
-            log.info(payload, 'Context action triggered');
+            log.withDetails('info', payload, 'Context action triggered');
             Users.emit('context_action', payload, uid);
         });
 
@@ -3116,7 +3116,8 @@ async function startServer(server_id) {
 
     server.listen(serverConfig.port, listenHost, () => {
         const address = server.address();
-        log.info(
+        log.withDetails(
+            'info',
             {
                 serverId: server_id,
                 serverName: serverConfig.registerName || null,
@@ -3208,7 +3209,8 @@ async function startServer(server_id) {
 
     serverUdp.bind(serverConfig.port, listenHost, () => {
         const address = serverUdp.address();
-        log.info(
+        log.withDetails(
+            'info',
             {
                 serverId: server_id,
                 serverName: serverConfig.registerName || null,
@@ -3227,7 +3229,8 @@ const serverIds = await getServerIds();
 const primaryServerId = serverIds[0] ?? 1;
 
 if (bootstrap.configSource === 'defaults') {
-    log.info(
+    log.withDetails(
+        'info',
         {
             configPath: bootstrap.configPath
         },
@@ -3240,7 +3243,8 @@ for (const warning of bootstrap.configWarnings || []) {
 }
 
 if (bootstrap.superUserPassword) {
-    log.info(
+    log.withDetails(
+        'info',
         {
             serverId: primaryServerId,
             username: 'SuperUser',
