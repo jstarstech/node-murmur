@@ -3474,7 +3474,7 @@ if (bootstrap.superUserPassword) {
     log.withDetails(
         'info',
         {
-            serverId: primaryServerId,
+            serverId: serverIds[0],
             username: 'SuperUser',
             password: bootstrap.superUserPassword
         },
