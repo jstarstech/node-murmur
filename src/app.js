@@ -3350,7 +3350,7 @@ const primaryServerId = serverIds[0] ?? 1;
 
 if (bootstrap.configSource === 'defaults') {
     log.withDetails(
-        'info',
+        'warn',
         {
             configPath: bootstrap.configPath
         },
