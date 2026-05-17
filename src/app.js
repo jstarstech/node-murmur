@@ -3487,7 +3487,18 @@ async function startServer(server_id) {
     );
 }
 
-const bootstrap = await ensureDatabaseReady();
+let bootstrap;
+try {
+    bootstrap = await ensureDatabaseReady();
+} catch (err) {
+    if (err.parent?.code === 'SQLITE_READONLY' || err.code === 'EACCES') {
+        log.error('Permission denied: Unable to write to the data directory or database file.');
+    } else {
+        log.error({ err }, 'Failed to initialize database');
+    }
+    process.exit(1);
+}
+
 log = createLogger({ filePath: bootstrap.config?.logfile || DEFAULT_SERVER_CONFIG.logfile });
 
 log.info('******************************************************');
@@ -3497,7 +3508,17 @@ log.info(`* ${'Documentation and issue tracking:'.padEnd(50)} *`);
 log.info(`* ${'https://github.com/jstarstech/node-murmur'.padEnd(50)} *`);
 log.info('******************************************************');
 
-const serverIds = await getServerIds();
+let serverIds;
+try {
+    serverIds = await getServerIds();
+} catch (err) {
+    if (err.parent?.code === 'SQLITE_READONLY' || err.code === 'EACCES') {
+        log.error('Permission denied: Unable to read from the database.');
+    } else {
+        log.error({ err }, 'Failed to load servers from database');
+    }
+    process.exit(1);
+}
 
 if (bootstrap.configSource === 'defaults') {
     log.withDetails(

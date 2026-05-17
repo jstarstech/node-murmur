@@ -7,11 +7,35 @@ import { DEFAULT_LOG_FILE, ROOT_DIR } from './paths.js';
 class AppendFileStream {
     constructor(filePath) {
         this.filePath = filePath;
-        fs.mkdirSync(path.dirname(filePath), { recursive: true });
+        this.permissionError = false;
+
+        try {
+            fs.mkdirSync(path.dirname(filePath), { recursive: true });
+            // Check if the file is writable by attempting to open it
+            fs.closeSync(fs.openSync(filePath, 'a'));
+        } catch (err) {
+            if (err.code === 'EACCES') {
+                this.permissionError = true;
+            } else {
+                throw err;
+            }
+        }
     }
 
     write(chunk) {
-        fs.appendFileSync(this.filePath, chunk);
+        if (this.permissionError) {
+            return true;
+        }
+
+        try {
+            fs.appendFileSync(this.filePath, chunk);
+        } catch (err) {
+            if (err.code === 'EACCES') {
+                this.permissionError = true;
+            } else {
+                throw err;
+            }
+        }
         return true;
     }
 }
@@ -21,7 +45,8 @@ export function createLogger({
     level = process.env.LOG_LEVEL || 'info',
     stdoutStream = process.stdout
 } = {}) {
-    const fileStream = new AppendFileStream(path.resolve(ROOT_DIR, filePath));
+    const absoluteFilePath = path.resolve(ROOT_DIR, filePath);
+    const fileStream = new AppendFileStream(absoluteFilePath);
     const consoleStream =
         stdoutStream === process.stdout
             ? pinoPretty({
@@ -42,6 +67,10 @@ export function createLogger({
         },
         streams
     );
+
+    if (fileStream.permissionError) {
+        logger.error(`Permission denied: Unable to write to the log file (${absoluteFilePath}).`);
+    }
 
     logger.withDetails = (logLevel, details, message) => {
         if (logger.isLevelEnabled('debug')) {
