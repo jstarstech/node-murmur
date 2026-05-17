@@ -6,8 +6,7 @@ const SERVER_CONFIG_PATH = process.env.CONFIG_FILE || DEFAULT_CONFIG_FILE;
 
 const DEFAULT_CHANNEL_NAME_PATTERN = '[ \\/\\-=\\w#\\[\\]\\{\\}\\(\\)@\\|\\.]+';
 const DEFAULT_USERNAME_PATTERN = '[-=\\w\\[\\]\\{\\}\\(\\)@\\|\\.]+';
-const DEFAULT_WELCOME_TEXT = 'Welcome to this server running Mumble.\nEnjoy your stay!';
-
+const DEFAULT_WELCOME_TEXT = `Welcome to this server running <b>node-murmur</b>.<br />Documentation and issue tracking: <a href="https://github.com/jstarstech/node-murmur">https://github.com/jstarstech/node-murmur</a>`;
 const SCHEMA = {
     allowhtml: { type: 'bool', default: true },
     allowping: { type: 'bool', default: true },
