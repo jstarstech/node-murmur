@@ -1982,6 +1982,7 @@ async function startServer(server_id) {
         let uid;
         let auth = false;
         let ready = false;
+        const pendingUserStates = [];
         let attemptedUsername = '';
         let connectionCloseError = null;
 
@@ -3046,6 +3047,7 @@ async function startServer(server_id) {
         }
         connection.on('userState', m => {
             if (!ready) {
+                pendingUserStates.push(m);
                 return;
             }
 
@@ -3203,6 +3205,10 @@ async function startServer(server_id) {
 
             for (const [action, entry] of contextActions.entries()) {
                 connection.sendMessage('ContextActionModify', buildContextActionModifyPayload(action, entry, 0));
+            }
+
+            while (pendingUserStates.length > 0) {
+                await handleUserState(pendingUserStates.shift());
             }
 
             ready = true;
