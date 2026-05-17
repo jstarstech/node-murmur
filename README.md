@@ -13,7 +13,7 @@
 - Node.js 24 or newer
 - npm
 
-## Run
+## Installation & Quick Start
 
 Run directly from npm:
 
@@ -47,16 +47,85 @@ npm install
 npm start
 ```
 
-By default, the server keeps runtime state in `data/`:
+## Usage
 
-- `data/mumble-server.ini` for optional server config
-- `data/mumble-server.sqlite` for SQLite storage
-- `data/mumble-server.log` for logs
-- `data/server.cert` and `data/server.key` for generated TLS
+### Connecting to the Server
+
+Once the server is running, you can connect using any Mumble-compatible client (like the official [Mumble client](https://www.mumble.info/)).
+
+- **Address:** Your server's IP or hostname
+- **Port:** `64738` (default)
+- **Username:** Any username you choose
+
+### Administrative Access (SuperUser)
+
+On the first startup, `node-murmur` generates a unique password for the `SuperUser` account and logs it to the console. You can use this account to:
+
+- Create and manage channels
+- Manage ACLs and groups
+- Kick or ban users
+
+To log in as `SuperUser`, use the username `SuperUser` and the generated password when connecting.
+
+### Configuration
+
+By default, the server keeps runtime state in the `data/` directory:
+
+- `data/mumble-server.ini`: Optional server configuration
+- `data/mumble-server.sqlite`: SQLite database for persistent storage
+- `data/mumble-server.log`: Server log file
+- `data/server.cert` & `data/server.key`: Automatically generated TLS certificate and key
 
 If `data/mumble-server.ini` is missing, the server starts with built-in defaults.
 
-The config, database, and log paths can be overridden with the `CONFIG_FILE`, `DB_STORAGE`, and `LOG_FILE` environment variables.
+#### Common Settings
+
+You can customize the server by adding these keys to your `mumble-server.ini`:
+
+- `port`: Port to listen on (default: `64738`)
+- `welcometext`: Message displayed to users upon connection
+- `users`: Maximum number of concurrent users
+- `serverpassword`: Password required to connect to the server
+
+#### Example Configuration (`mumble-server.ini`)
+
+```ini
+# Port to listen on (default: 64738)
+port=64738
+
+# Message displayed to users upon connection
+welcometext="Welcome to the server!"
+
+# Maximum number of concurrent users
+users=100
+
+# Password required to connect to the server (uncomment to enable)
+# serverpassword=mypassword
+
+# Allow HTML in welcome text and channel descriptions
+allowhtml=true
+
+# Bandwidth limit in bits per second
+bandwidth=558000
+```
+
+#### Rich HTML Example
+
+You can use HTML and inline CSS to create a more styled welcome message. Here is an example:
+
+```ini
+welcometext="<br />Welcome!<p style=\"margin-bottom:12px; margin-top:12px\">Website: <a href=\"https://github.com/jstarstech/node-murmur\"><span style=\"color:#39a5dd\">node-murmur</span></a></p><p style=\"margin-bottom:12px; margin-top:12px\"><a href=\"https://github.com/jstarstech/node-murmur/issues\"><span style=\"color:#39a5dd\">Report Issues</span></a></p>"
+```
+
+> **Note:** When using quotes or complex HTML in the `.ini` file, ensure you escape inner quotes or use the appropriate format for your environment.
+
+#### Environment Variables
+
+You can override default paths using environment variables:
+
+- `CONFIG_FILE`: Path to the `.ini` config file
+- `DB_STORAGE`: Path to the SQLite database
+- `LOG_FILE`: Path to the log file
 
 ## Development
 
