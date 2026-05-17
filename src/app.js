@@ -3114,19 +3114,19 @@ async function startServer(server_id) {
         });
     });
 
-    server.listen(serverConfig.port, listenHost, () => {
-        const address = server.address();
-        log.withDetails(
-            'info',
-            {
-                serverId: server_id,
-                serverName: serverConfig.registerName || null,
-                protocol: 'tcp',
-                address: typeof address === 'object' && address ? address.address : listenHost || '0.0.0.0',
-                port: typeof address === 'object' && address ? address.port : serverConfig.port
-            },
-            'Server started and listening'
-        );
+    function normalizeListenAddress(address) {
+        return {
+            address: typeof address === 'object' && address ? address.address : listenHost || '0.0.0.0',
+            port: typeof address === 'object' && address ? address.port : serverConfig.port
+        };
+    }
+
+    const tcpListening = new Promise((resolve, reject) => {
+        server.once('error', reject);
+        server.listen(serverConfig.port, listenHost, () => {
+            server.off('error', reject);
+            resolve(normalizeListenAddress(server.address()));
+        });
     });
 
     serverUdp = dgram.createSocket('udp4');
@@ -3207,20 +3207,26 @@ async function startServer(server_id) {
         broadcastVoicePacket(voicePacket, matchedConnection.sessionId);
     });
 
-    serverUdp.bind(serverConfig.port, listenHost, () => {
-        const address = serverUdp.address();
-        log.withDetails(
-            'info',
-            {
-                serverId: server_id,
-                serverName: serverConfig.registerName || null,
-                protocol: 'udp',
-                address: typeof address === 'object' && address ? address.address : listenHost || '0.0.0.0',
-                port: typeof address === 'object' && address ? address.port : serverConfig.port
-            },
-            'UDP socket started and listening'
-        );
+    const udpListening = new Promise((resolve, reject) => {
+        serverUdp.once('error', reject);
+        serverUdp.bind(serverConfig.port, listenHost, () => {
+            serverUdp.off('error', reject);
+            resolve(normalizeListenAddress(serverUdp.address()));
+        });
     });
+
+    const [serverListenAddress] = await Promise.all([tcpListening, udpListening]);
+
+    log.withDetails(
+        'info',
+        {
+            serverId: server_id,
+            serverName: serverConfig.registerName || null,
+            serverAddress: serverListenAddress.address,
+            serverPort: serverListenAddress.port
+        },
+        `Server listening on ${serverListenAddress.address}:${serverListenAddress.port}`
+    );
 }
 
 const bootstrap = await ensureDatabaseReady();
@@ -3257,6 +3263,10 @@ if (bootstrap.superUserPassword) {
 try {
     await Promise.all(serverIds.map(serverId => startServer(serverId)));
 } catch (e) {
-    log.error(e);
+    if (e?.code === 'EADDRINUSE') {
+        log.error(e.message);
+    } else {
+        log.error(e);
+    }
     process.exit(1);
 }
