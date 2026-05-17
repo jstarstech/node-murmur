@@ -2,6 +2,14 @@
   "name": "node-murmur",
   "version": "0.1.0",
   "description": "A Node.js implementation of a Mumble-compatible voice server",
+  "keywords": [
+    "mumble",
+    "voice-server",
+    "voip",
+    "murmur",
+    "node-murmur",
+    "audio"
+  ],
   "type": "module",
   "main": "src/app.js",
   "bin": {
