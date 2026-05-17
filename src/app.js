@@ -3392,7 +3392,7 @@ if (bootstrap.superUserPassword) {
             username: 'SuperUser',
             password: bootstrap.superUserPassword
         },
-        'Created initial superuser account'
+        `Password for 'SuperUser' set to '${bootstrap.superUserPassword}'`
     );
 }
 
