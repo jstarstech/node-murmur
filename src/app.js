@@ -3221,9 +3221,10 @@ async function startServer(server_id) {
         });
     });
 
+    let udpDefaultHost = '0.0.0.0';
     function normalizeListenAddress(address) {
         return {
-            address: typeof address === 'object' && address ? address.address : listenHost || '0.0.0.0',
+            address: typeof address === 'object' && address ? address.address : listenHost || udpDefaultHost,
             port: typeof address === 'object' && address ? address.port : serverConfig.port
         };
     }
@@ -3236,7 +3237,21 @@ async function startServer(server_id) {
         });
     });
 
-    serverUdp = dgram.createSocket('udp4');
+    const ipVersion = net.isIP(listenHost || '');
+    if (ipVersion === 4) {
+        serverUdp = dgram.createSocket('udp4');
+    } else if (ipVersion === 6) {
+        serverUdp = dgram.createSocket('udp6');
+        udpDefaultHost = '::';
+    } else {
+        try {
+            serverUdp = dgram.createSocket({ type: 'udp6', ipv6Only: false });
+            udpDefaultHost = '::';
+        } catch {
+            serverUdp = dgram.createSocket('udp4');
+            udpDefaultHost = '0.0.0.0';
+        }
+    }
 
     serverUdp.on('message', (message, rinfo) => {
         if (message.length === 12) {
@@ -3316,7 +3331,7 @@ async function startServer(server_id) {
 
     const udpListening = new Promise((resolve, reject) => {
         serverUdp.once('error', reject);
-        serverUdp.bind(serverConfig.port, listenHost, () => {
+        serverUdp.bind(serverConfig.port, listenHost || udpDefaultHost, () => {
             serverUdp.off('error', reject);
             resolve(normalizeListenAddress(serverUdp.address()));
         });
