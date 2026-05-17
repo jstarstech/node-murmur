@@ -395,11 +395,22 @@ async function seedDatabase(serverConfig) {
                 (1, 'admin', 0, 1, 1)`,
             { transaction }
         );
+
+        await sequelize.query(
+            `INSERT INTO group_members (group_id, server_id, user_id, addit)
+             VALUES (
+                (SELECT group_id FROM "groups" WHERE server_id = 1 AND channel_id = 0 AND name = 'admin' LIMIT 1),
+                1,
+                0,
+                1
+             )`,
+            { transaction }
+        );
         await sequelize.query(
             `INSERT INTO acl (server_id, channel_id, priority, user_id, group_name, apply_here, apply_sub, grantpriv, revokepriv) VALUES
-                (1, 0, 1, NULL, 'admin', 1, 1, 1, 0),
+                (1, 0, 1, NULL, 'all', 1, 1, 524288, 0),
                 (1, 0, 2, NULL, 'auth', 1, 1, 1024, 0),
-                (1, 0, 3, NULL, 'all', 1, 0, 524288, 0)`,
+                (1, 0, 3, NULL, 'admin', 1, 1, 1, 0)`,
             { transaction }
         );
         await ensureSelfRegisterAcl(1, transaction);

@@ -252,17 +252,25 @@ function collectAclView(channelId, channels, aclState) {
                 continue;
             }
 
+            const isUserRule = acl.userId !== null && acl.userId !== undefined;
+            const isGroupRule = !isUserRule && acl.groupName !== null && acl.groupName !== undefined && acl.groupName !== '';
+
+            if (!isUserRule && !isGroupRule) {
+                // Skip malformed rules that have neither user nor group
+                continue;
+            }
+
             reply.acls.push({
-                inherited: channel.channel_id !== currentChannelId,
+                inherited: Number(channel.channel_id) !== currentChannelId,
                 applyHere: acl.applyHere,
                 applySubs: acl.applySub,
-                userId: acl.userId !== null && acl.userId !== undefined ? Number(acl.userId) : undefined,
-                group: acl.groupName !== null && acl.groupName !== undefined ? acl.groupName : undefined,
+                userId: isUserRule ? Number(acl.userId) : undefined,
+                group: isGroupRule ? acl.groupName : undefined,
                 grant: acl.grant,
                 deny: acl.deny
             });
 
-            if (acl.userId !== null && acl.userId !== undefined) {
+            if (isUserRule) {
                 userIds.add(Number(acl.userId));
             }
         }
