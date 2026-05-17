@@ -28,6 +28,7 @@ import { sequelize } from './models/index.js';
 import { ensureDatabaseReady, resolveConfigFileValue } from './lib/bootstrapDatabase.js';
 import { DEFAULT_SERVER_CONFIG, coerceServerConfigValue } from './lib/serverConfig.js';
 import { createLogger } from './lib/logger.js';
+import pkg from '../package.json' with { type: 'json' };
 
 let log = createLogger();
 const CELT_COMPAT_BITSTREAM = -2147483637;
@@ -3335,6 +3336,13 @@ async function startServer(server_id) {
 
 const bootstrap = await ensureDatabaseReady();
 log = createLogger({ filePath: bootstrap.config?.logfile || DEFAULT_SERVER_CONFIG.logfile });
+
+log.info('********************************************************************************');
+log.info(`* ${`node-murmur v${pkg.version}`.padEnd(76)} *`);
+log.info(`* ${'A Mumble-compatible voice server implementation'.padEnd(76)} *`);
+log.info(`* ${'Documentation and issue tracking: https://github.com/jstarstech/node-murmur'.padEnd(76)} *`);
+log.info('********************************************************************************');
+
 const serverIds = await getServerIds();
 const primaryServerId = serverIds[0] ?? 1;
 
