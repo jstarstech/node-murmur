@@ -255,6 +255,11 @@ class MumbleConnection extends EventEmitter {
 
                 const type = prefix.readUInt16BE(0);
                 const length = prefix.readUInt32BE(2);
+
+                if (length > 8388608) {
+                    throw new Error(`Protocol message too large: ${length} bytes`);
+                }
+
                 const data = length > 0 ? await this.socket.read(length) : Buffer.alloc(0);
 
                 if (this.state === 'dead') {
