@@ -46,7 +46,7 @@ const getChannelPath = (channelId, channels) => {
     return path;
 };
 
-const groupMatchesBuiltin = (name, user, currentChannelId) => {
+const groupMatchesBuiltin = (name, user, currentChannelId, channels) => {
     if (name === 'none') {
         return false;
     }
@@ -60,7 +60,7 @@ const groupMatchesBuiltin = (name, user, currentChannelId) => {
     }
 
     if (name === 'strong') {
-        return false;
+        return typeof user.hash === 'string' && user.hash.length > 0;
     }
 
     if (name === 'in') {
@@ -72,6 +72,16 @@ const groupMatchesBuiltin = (name, user, currentChannelId) => {
     }
 
     if (name === 'sub') {
+        let iter = channels[user.channelId];
+        while (iter) {
+            if (iter.parent_id === currentChannelId) {
+                return true;
+            }
+            if (iter.parent_id === null || iter.parent_id === undefined) {
+                break;
+            }
+            iter = channels[iter.parent_id];
+        }
         return false;
     }
 
@@ -79,49 +89,38 @@ const groupMatchesBuiltin = (name, user, currentChannelId) => {
 };
 
 const resolveCustomGroupMembers = (groupName, channelId, channels, aclState) => {
-    const definitions = [];
-    let currentId = channelId;
+    return resolveGroupRecursive(groupName, channelId, channels, aclState).members;
+};
 
-    while (currentId !== null && currentId !== undefined) {
-        const groupsForChannel = aclState.groupsByChannel.get(currentId);
-        const group = groupsForChannel ? groupsForChannel.get(groupName) : null;
+const resolveGroupRecursive = (groupName, channelId, channels, aclState) => {
+    const groupsForChannel = aclState.groupsByChannel.get(channelId);
+    const group = groupsForChannel ? groupsForChannel.get(groupName) : null;
 
-        if (!group) {
-            break;
+    const parentId = channels[channelId]?.parent_id ?? null;
+
+    let members = new Set();
+    let inheritable = true;
+
+    if (parentId !== null && parentId !== undefined) {
+        if (!group || group.inherit) {
+            const parentRes = resolveGroupRecursive(groupName, parentId, channels, aclState);
+            if (parentRes.inheritable) {
+                members = parentRes.members;
+            }
         }
-
-        definitions.unshift(group);
-
-        if (!group.inherit) {
-            break;
-        }
-
-        const parentId = channels[currentId]?.parent_id ?? null;
-        if (parentId === null || parentId === undefined) {
-            break;
-        }
-
-        const parentGroup = aclState.groupsByChannel.get(parentId)?.get(groupName);
-        if (!parentGroup || !parentGroup.inheritable) {
-            break;
-        }
-
-        currentId = parentId;
     }
 
-    const members = new Set();
-
-    for (const group of definitions) {
+    if (group) {
+        inheritable = group.inheritable;
         for (const uid of group.remove) {
             members.delete(uid);
         }
-
         for (const uid of group.add) {
             members.add(uid);
         }
     }
 
-    return members;
+    return { members, inheritable };
 };
 
 const groupMatches = (rawName, user, aclChannelId, currentChannelId, channels, aclState) => {
@@ -169,7 +168,7 @@ const groupMatches = (rawName, user, aclChannelId, currentChannelId, channels, a
     } else if (hash) {
         ok = typeof user.hash === 'string' && user.hash.toLowerCase() === name.toLowerCase();
     } else {
-        const builtin = groupMatchesBuiltin(name, user, matchChannelId);
+        const builtin = groupMatchesBuiltin(name, user, matchChannelId, channels);
         if (builtin !== null) {
             ok = builtin;
         } else {
