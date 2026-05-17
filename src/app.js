@@ -1971,6 +1971,62 @@ async function startServer(server_id) {
         connection.lastCryptResync = 0;
         connection.state = 'connected';
 
+        function formatUserLogPrefix(user = Users.getUser(uid)) {
+            const session = connection.sessionId ?? user?.session;
+            if (session === undefined || session === null) {
+                return null;
+            }
+
+            const name = user?.name || '';
+            const userId = user?.userId ?? -1;
+            return `<${session}:${name}(${userId})>`;
+        }
+
+        function formatRemoteAddress() {
+            return `${socket.remoteAddress || 'unknown'}:${socket.remotePort || 0}`;
+        }
+
+        function formatClientVersion(version) {
+            const numericVersion = Number(version || 0);
+            const major = (numericVersion >>> 16) & 0xffff;
+            const minor = (numericVersion >>> 8) & 0xff;
+            const patch = numericVersion & 0xff;
+            return `${major}.${minor}.${patch}`;
+        }
+
+        function formatRejectReason(reject) {
+            if (reject?.type === 3 || reject?.type === 8) {
+                return 'Wrong certificate or password for existing user';
+            }
+
+            return reject?.reason || 'Rejected';
+        }
+
+        function logRejectedConnection(username, reject) {
+            attemptedUsername = username || '';
+            const attemptedUser = {
+                session: connection.sessionId,
+                name: attemptedUsername,
+                userId: -1
+            };
+            log.info(
+                `${formatUserLogPrefix(attemptedUser)} Rejected connection from ${formatRemoteAddress()}: ${formatRejectReason(reject)}`
+            );
+        }
+
+        function logPreAuthConnectionClosed() {
+            const attemptedUser = {
+                session: connection.sessionId,
+                name: attemptedUsername,
+                userId: -1
+            };
+            const reason = connectionCloseError?.code || connectionCloseError?.message;
+            const suffix = reason ? `: ${reason}` : '';
+            log.info(`${formatUserLogPrefix(attemptedUser)} Connection closed${suffix}`);
+        }
+
+        log.info(`${formatUserLogPrefix()} New connection: ${formatRemoteAddress()}`);
+
         connection.on('protocol-in', () => {
             connection.lastActivityAt = Date.now();
         });
@@ -2069,6 +2125,12 @@ async function startServer(server_id) {
             connection.clientRelease = version.release || null;
             connection.clientOS = version.os || null;
             connection.clientOSVersion = version.osVersion || null;
+
+            const clientOS = connection.clientOS || 'Unknown';
+            const clientRelease = connection.clientRelease || 'unknown';
+            log.info(
+                `${formatUserLogPrefix()} Client version ${formatClientVersion(connection.clientVersion)} (${clientOS}: ${clientRelease})`
+            );
         });
 
         connection.on('textMessage', ({ channelId, message }) => {
@@ -2848,6 +2910,7 @@ async function startServer(server_id) {
             }
 
             connection.state = 'authenticating';
+            attemptedUsername = m.username || '';
             const peerCertificate = socket.getPeerCertificate();
             const certificateHash =
                 peerCertificate && typeof peerCertificate.fingerprint === 'string'
@@ -2855,10 +2918,12 @@ async function startServer(server_id) {
                     : null;
 
             if (serverConfig.certrequired && !certificateHash) {
-                connection.sendMessage('Reject', {
+                const reject = {
                     type: 7,
                     reason: 'No certificate'
-                });
+                };
+                logRejectedConnection(m.username, reject);
+                connection.sendMessage('Reject', reject);
                 connection.disconnect();
                 return;
             }
@@ -2879,6 +2944,7 @@ async function startServer(server_id) {
 
             if (authResult.reject) {
                 await Users.deleteUser(authResult.id);
+                logRejectedConnection(m.username, authResult.reject);
                 connection.sendMessage('Reject', authResult.reject);
                 connection.disconnect();
                 return;
@@ -2893,10 +2959,12 @@ async function startServer(server_id) {
                     Users.releaseSession(rejectedSessionId);
                 }
 
-                connection.sendMessage('Reject', {
+                const reject = {
                     type: 6,
                     reason: 'Server full'
-                });
+                };
+                logRejectedConnection(m.username, reject);
+                connection.sendMessage('Reject', reject);
                 connection.disconnect();
                 return;
             }
@@ -2918,6 +2986,8 @@ async function startServer(server_id) {
                 CryptState.supportedModes()[0];
             connection.cryptState = new CryptState(negotiatedMode);
             connection.cryptState.generateKey(negotiatedMode);
+
+            log.info(`${formatUserLogPrefix(activeUser)} Authenticated`);
 
             connection.sendMessage('CryptSetup', connection.cryptState.getCryptSetup());
 
