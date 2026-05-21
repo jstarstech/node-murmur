@@ -253,7 +253,8 @@ function collectAclView(channelId, channels, aclState) {
             }
 
             const isUserRule = acl.userId !== null && acl.userId !== undefined;
-            const isGroupRule = !isUserRule && acl.groupName !== null && acl.groupName !== undefined && acl.groupName !== '';
+            const isGroupRule =
+                !isUserRule && acl.groupName !== null && acl.groupName !== undefined && acl.groupName !== '';
 
             if (!isUserRule && !isGroupRule) {
                 // Skip malformed rules that have neither user nor group
