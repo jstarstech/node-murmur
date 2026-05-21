@@ -13,7 +13,7 @@ async function getChannels(server_id) {
             server_id
         },
         raw: true
-    }).catch(err => {
+    }).catch(() => {
         return [];
     });
 
@@ -22,7 +22,7 @@ async function getChannels(server_id) {
             server_id
         },
         raw: true
-    }).catch(err => {
+    }).catch(() => {
         return [];
     });
 
