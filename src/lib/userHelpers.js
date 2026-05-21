@@ -163,7 +163,8 @@ async function createRegisteredUser(serverId, user, certificateHash) {
     const [rows] = await sequelize.query(
         `SELECT COALESCE(MAX(user_id), 0) AS max_user_id
          FROM users
-         WHERE server_id = ${Number(serverId)}`
+         WHERE server_id = ?`,
+        { replacements: [Number(serverId)] }
     );
 
     const nextUserId = Number(rows?.[0]?.max_user_id || 0) + 1;
@@ -212,10 +213,10 @@ async function createRegisteredUser(serverId, user, certificateHash) {
 async function setUserInfoValue(serverId, userId, key, value, transaction) {
     await sequelize.query(
         `DELETE FROM user_info
-         WHERE server_id = ${Number(serverId)}
-           AND user_id = ${Number(userId)}
-           AND key = ${Number(key)}`,
-        { transaction }
+         WHERE server_id = ?
+           AND user_id = ?
+           AND key = ?`,
+        { replacements: [Number(serverId), Number(userId), Number(key)], transaction }
     );
 
     if (value === null || value === undefined) {
@@ -224,13 +225,8 @@ async function setUserInfoValue(serverId, userId, key, value, transaction) {
 
     await sequelize.query(
         `INSERT INTO user_info (server_id, user_id, key, value)
-         VALUES (
-            ${Number(serverId)},
-            ${Number(userId)},
-            ${Number(key)},
-            ${sequelize.escape(value)}
-         )`,
-        { transaction }
+         VALUES (?, ?, ?, ?)`,
+        { replacements: [Number(serverId), Number(userId), Number(key), value], transaction }
     );
 }
 

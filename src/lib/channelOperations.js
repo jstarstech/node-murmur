@@ -47,9 +47,9 @@ export function createChannelOperations({
         const [rows] = await sequelize.query(
             `SELECT channel_id, link_id
              FROM channel_links
-             WHERE server_id = ${serverIdNum}
-               AND (channel_id = ${channelIdNum} OR link_id = ${channelIdNum})`,
-            { transaction }
+             WHERE server_id = ?
+               AND (channel_id = ? OR link_id = ?)`,
+            { replacements: [serverIdNum, channelIdNum, channelIdNum], transaction }
         );
 
         const currentLinks = new Set();
@@ -69,10 +69,10 @@ export function createChannelOperations({
             const maxId = Math.max(channelIdNum, otherId);
             await sequelize.query(
                 `DELETE FROM channel_links
-                 WHERE server_id = ${serverIdNum}
-                   AND channel_id = ${minId}
-                   AND link_id = ${maxId}`,
-                { transaction }
+                 WHERE server_id = ?
+                   AND channel_id = ?
+                   AND link_id = ?`,
+                { replacements: [serverIdNum, minId, maxId], transaction }
             );
         }
 
@@ -85,15 +85,15 @@ export function createChannelOperations({
             const maxId = Math.max(channelIdNum, otherId);
             await sequelize.query(
                 `INSERT INTO channel_links (server_id, channel_id, link_id)
-                 SELECT ${serverIdNum}, ${minId}, ${maxId}
+                 SELECT ?, ?, ?
                  WHERE NOT EXISTS (
                      SELECT 1
                      FROM channel_links
-                     WHERE server_id = ${serverIdNum}
-                     AND channel_id = ${minId}
-                       AND link_id = ${maxId}
+                     WHERE server_id = ?
+                     AND channel_id = ?
+                       AND link_id = ?
                  )`,
-                { transaction }
+                { replacements: [serverIdNum, minId, maxId, serverIdNum, minId, maxId], transaction }
             );
         }
     }
@@ -101,10 +101,10 @@ export function createChannelOperations({
     async function setChannelInfoValue(channelId, key, value, transaction) {
         await sequelize.query(
             `DELETE FROM channel_info
-             WHERE server_id = ${Number(serverId)}
-               AND channel_id = ${Number(channelId)}
-               AND key = ${Number(key)}`,
-            { transaction }
+             WHERE server_id = ?
+               AND channel_id = ?
+               AND key = ?`,
+            { replacements: [Number(serverId), Number(channelId), Number(key)], transaction }
         );
 
         if (value === null || value === undefined) {
@@ -113,13 +113,8 @@ export function createChannelOperations({
 
         await sequelize.query(
             `INSERT INTO channel_info (server_id, channel_id, key, value)
-             VALUES (
-                ${Number(serverId)},
-                ${Number(channelId)},
-                ${Number(key)},
-                ${sequelize.escape(value)}
-             )`,
-            { transaction }
+             VALUES (?, ?, ?, ?)`,
+            { replacements: [Number(serverId), Number(channelId), Number(key), value], transaction }
         );
     }
 
@@ -207,22 +202,24 @@ export function createChannelOperations({
                 const [rows] = await sequelize.query(
                     `SELECT COALESCE(MAX(channel_id), 0) AS max_channel_id
                      FROM channels
-                     WHERE server_id = ${Number(serverId)}`,
-                    { transaction }
+                     WHERE server_id = ?`,
+                    { replacements: [Number(serverId)], transaction }
                 );
                 const nextChannelId = Number(rows?.[0]?.max_channel_id || 0) + 1;
 
                 await sequelize.query(
                     `INSERT INTO channels (server_id, channel_id, parent_id, name, inheritacl, temporary)
-                     VALUES (
-                        ${Number(serverId)},
-                        ${Number(nextChannelId)},
-                        ${Number(targetParentId)},
-                        ${sequelize.escape(targetName)},
-                        1,
-                        ${isTemporary ? 1 : 0}
-                     )`,
-                    { transaction }
+                     VALUES (?, ?, ?, ?, 1, ?)`,
+                    {
+                        replacements: [
+                            Number(serverId),
+                            Number(nextChannelId),
+                            Number(targetParentId),
+                            targetName,
+                            isTemporary ? 1 : 0
+                        ],
+                        transaction
+                    }
                 );
 
                 await setChannelDescriptionValue(serverId, nextChannelId, descriptionValue, transaction);
@@ -233,27 +230,39 @@ export function createChannelOperations({
                 if (user.userId !== null && user.userId !== undefined) {
                     await sequelize.query(
                         `INSERT INTO "groups" (server_id, name, channel_id, inherit, inheritable)
-                         VALUES (${Number(serverId)}, 'admin', ${Number(nextChannelId)}, 1, 1)`,
-                        { transaction }
+                         VALUES (?, 'admin', ?, 1, 1)`,
+                        { replacements: [Number(serverId), Number(nextChannelId)], transaction }
                     );
 
                     await sequelize.query(
                         `INSERT INTO group_members (group_id, server_id, user_id, addit)
                          VALUES (
-                            (SELECT group_id FROM "groups" WHERE server_id = ${Number(serverId)} AND channel_id = ${Number(nextChannelId)} AND name = 'admin' LIMIT 1),
-                            ${Number(serverId)},
-                            ${Number(user.userId)},
-                            1
+                            (SELECT group_id FROM "groups" WHERE server_id = ? AND channel_id = ? AND name = 'admin' LIMIT 1),
+                            ?, ?, 1
                          )`,
-                        { transaction }
+                        {
+                            replacements: [
+                                Number(serverId),
+                                Number(nextChannelId),
+                                Number(serverId),
+                                Number(user.userId)
+                            ],
+                            transaction
+                        }
                     );
                 } else if (user.hash) {
                     await sequelize.query(
                         `INSERT INTO acl (server_id, channel_id, priority, user_id, group_name, apply_here, apply_sub, grantpriv, revokepriv)
-                         VALUES (${Number(serverId)}, ${Number(nextChannelId)}, 1, NULL, ${sequelize.escape(`$${user.hash}`)}, 1, 1, ${
-                             PERMISSIONS.Write | PERMISSIONS.Traverse
-                         }, 0)`,
-                        { transaction }
+                         VALUES (?, ?, 1, NULL, ?, 1, 1, ?, 0)`,
+                        {
+                            replacements: [
+                                Number(serverId),
+                                Number(nextChannelId),
+                                `$${user.hash}`,
+                                PERMISSIONS.Write | PERMISSIONS.Traverse
+                            ],
+                            transaction
+                        }
                     );
                 }
 
@@ -405,15 +414,23 @@ export function createChannelOperations({
         }
 
         const updatedChannel = await sequelize.transaction(async transaction => {
-            const parentIdSql = nextParentId === null || nextParentId === undefined ? 'NULL' : Number(nextParentId);
             await sequelize.query(
                 `UPDATE channels
-                 SET parent_id = ${parentIdSql},
-                     name = ${sequelize.escape(nextName)},
-                     temporary = ${nextTemporary ? 1 : 0}
-                 WHERE server_id = ${Number(serverId)}
-                   AND channel_id = ${Number(requestedChannelId)}`,
-                { transaction }
+                 SET parent_id = ?,
+                     name = ?,
+                     temporary = ?
+                 WHERE server_id = ?
+                   AND channel_id = ?`,
+                {
+                    replacements: [
+                        nextParentId === null || nextParentId === undefined ? null : Number(nextParentId),
+                        nextName,
+                        nextTemporary ? 1 : 0,
+                        Number(serverId),
+                        Number(requestedChannelId)
+                    ],
+                    transaction
+                }
             );
 
             if (descriptionProvided) {
@@ -539,53 +556,54 @@ export function createChannelOperations({
             .filter(({ item }) => removedIds.includes(Number(item.channelId)));
 
         await sequelize.transaction(async transaction => {
-            const idList = removedIds.map(id => Number(id)).join(', ');
+            const numericIds = removedIds.map(id => Number(id));
+            const placeholders = numericIds.map(() => '?').join(', ');
 
             await sequelize.query(
                 `DELETE FROM channel_links
-                 WHERE server_id = ${Number(serverId)}
-                   AND (channel_id IN (${idList}) OR link_id IN (${idList}))`,
-                { transaction }
+                 WHERE server_id = ?
+                   AND (channel_id IN (${placeholders}) OR link_id IN (${placeholders}))`,
+                { replacements: [Number(serverId), ...numericIds, ...numericIds], transaction }
             );
 
             await sequelize.query(
                 `DELETE FROM group_members
-                 WHERE server_id = ${Number(serverId)}
+                 WHERE server_id = ?
                    AND group_id IN (
                        SELECT group_id
                        FROM "groups"
-                       WHERE server_id = ${Number(serverId)}
-                         AND channel_id IN (${idList})
+                       WHERE server_id = ?
+                         AND channel_id IN (${placeholders})
                    )`,
-                { transaction }
+                { replacements: [Number(serverId), Number(serverId), ...numericIds], transaction }
             );
 
             await sequelize.query(
                 `DELETE FROM acl
-                 WHERE server_id = ${Number(serverId)}
-                   AND channel_id IN (${idList})`,
-                { transaction }
+                 WHERE server_id = ?
+                   AND channel_id IN (${placeholders})`,
+                { replacements: [Number(serverId), ...numericIds], transaction }
             );
 
             await sequelize.query(
                 `DELETE FROM channel_info
-                 WHERE server_id = ${Number(serverId)}
-                   AND channel_id IN (${idList})`,
-                { transaction }
+                 WHERE server_id = ?
+                   AND channel_id IN (${placeholders})`,
+                { replacements: [Number(serverId), ...numericIds], transaction }
             );
 
             await sequelize.query(
                 `DELETE FROM "groups"
-                 WHERE server_id = ${Number(serverId)}
-                   AND channel_id IN (${idList})`,
-                { transaction }
+                 WHERE server_id = ?
+                   AND channel_id IN (${placeholders})`,
+                { replacements: [Number(serverId), ...numericIds], transaction }
             );
 
             await sequelize.query(
                 `DELETE FROM channels
-                 WHERE server_id = ${Number(serverId)}
-                   AND channel_id IN (${idList})`,
-                { transaction }
+                 WHERE server_id = ?
+                   AND channel_id IN (${placeholders})`,
+                { replacements: [Number(serverId), ...numericIds], transaction }
             );
         });
 

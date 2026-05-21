@@ -82,7 +82,8 @@ async function loadChannelLinks(serverId, channels) {
     const [rows] = await sequelize.query(
         `SELECT channel_id, link_id
          FROM channel_links
-         WHERE server_id = ${Number(serverId)}`
+         WHERE server_id = ?`,
+        { replacements: [Number(serverId)] }
     );
 
     for (const row of rows || []) {
@@ -137,10 +138,10 @@ async function setChannelDescriptionValue(serverId, channelId, description, tran
 
     await sequelize.query(
         `DELETE FROM channel_info
-         WHERE server_id = ${Number(serverId)}
-           AND channel_id = ${Number(channelId)}
+         WHERE server_id = ?
+           AND channel_id = ?
            AND key = 0`,
-        { transaction }
+        { replacements: [Number(serverId), Number(channelId)], transaction }
     );
 
     if (channelDescription.length === 0) {
@@ -149,13 +150,8 @@ async function setChannelDescriptionValue(serverId, channelId, description, tran
 
     await sequelize.query(
         `INSERT INTO channel_info (server_id, channel_id, key, value)
-         VALUES (
-            ${Number(serverId)},
-            ${Number(channelId)},
-            0,
-            ${sequelize.escape(channelDescription)}
-         )`,
-        { transaction }
+         VALUES (?, ?, 0, ?)`,
+        { replacements: [Number(serverId), Number(channelId), channelDescription], transaction }
     );
 
     return channelDescription;

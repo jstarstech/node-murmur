@@ -318,69 +318,76 @@ function collectAclView(channelId, channels, aclState) {
     return { reply, userIds };
 }
 
-function buildAclInsertStatements(serverId, channelId, payload, nextGroupId) {
-    const statements = [];
+function buildAclInsertQueries(serverId, channelId, payload, nextGroupId) {
+    const queries = [];
     const serverIdNum = Number(serverId);
     const targetChannelId = Number(channelId);
     const inheritAcls = Boolean(payload?.inheritAcls ?? true);
 
-    statements.push(
-        `UPDATE channels
-         SET inheritacl = ${inheritAcls ? 1 : 0}
-         WHERE server_id = ${serverIdNum}
-           AND channel_id = ${targetChannelId}`
-    );
+    queries.push({
+        sql: `UPDATE channels
+              SET inheritacl = ?
+              WHERE server_id = ?
+                AND channel_id = ?`,
+        replacements: [inheritAcls ? 1 : 0, serverIdNum, targetChannelId]
+    });
 
-    statements.push(
-        `DELETE FROM group_members
-         WHERE server_id = ${serverIdNum}
-           AND group_id IN (
-               SELECT group_id
-               FROM "groups"
-               WHERE server_id = ${serverIdNum}
-                 AND channel_id = ${targetChannelId}
-           )`
-    );
+    queries.push({
+        sql: `DELETE FROM group_members
+              WHERE server_id = ?
+                AND group_id IN (
+                    SELECT group_id
+                    FROM "groups"
+                    WHERE server_id = ?
+                      AND channel_id = ?
+                )`,
+        replacements: [serverIdNum, serverIdNum, targetChannelId]
+    });
 
-    statements.push(
-        `DELETE FROM acl
-         WHERE server_id = ${serverIdNum}
-           AND channel_id = ${targetChannelId}`
-    );
+    queries.push({
+        sql: `DELETE FROM acl
+              WHERE server_id = ?
+                AND channel_id = ?`,
+        replacements: [serverIdNum, targetChannelId]
+    });
 
-    statements.push(
-        `DELETE FROM "groups"
-         WHERE server_id = ${serverIdNum}
-           AND channel_id = ${targetChannelId}`
-    );
+    queries.push({
+        sql: `DELETE FROM "groups"
+              WHERE server_id = ?
+                AND channel_id = ?`,
+        replacements: [serverIdNum, targetChannelId]
+    });
 
     let groupId = nextGroupId;
     for (const group of payload.groups || []) {
         const currentGroupId = groupId++;
-        statements.push(
-            `INSERT INTO "groups" (group_id, server_id, name, channel_id, inherit, inheritable)
-             VALUES (
-                ${Number(currentGroupId)},
-                ${serverIdNum},
-                ${sequelize.escape(group.name)},
-                ${targetChannelId},
-                ${group.inherit ? 1 : 0},
-                ${group.inheritable ? 1 : 0}
-             )`
-        );
+        queries.push({
+            sql: `INSERT INTO "groups" (group_id, server_id, name, channel_id, inherit, inheritable)
+                  VALUES (?, ?, ?, ?, ?, ?)`,
+            replacements: [
+                Number(currentGroupId),
+                serverIdNum,
+                group.name,
+                targetChannelId,
+                group.inherit ? 1 : 0,
+                group.inheritable ? 1 : 0
+            ]
+        });
 
         for (const uid of group.add || []) {
-            statements.push(
-                `INSERT INTO group_members (group_id, server_id, user_id, addit)
-                 VALUES (${Number(currentGroupId)}, ${serverIdNum}, ${Number(uid)}, 1)`
-            );
+            queries.push({
+                sql: `INSERT INTO group_members (group_id, server_id, user_id, addit)
+                      VALUES (?, ?, ?, 1)`,
+                replacements: [Number(currentGroupId), serverIdNum, Number(uid)]
+            });
         }
 
         for (const uid of group.remove || []) {
-            statements.push(
-                `INSERT INTO group_members (group_id, server_id, user_id, addit)
-                 VALUES (${Number(currentGroupId)}, ${serverIdNum}, ${Number(uid)}, 0)`
-            );
+            queries.push({
+                sql: `INSERT INTO group_members (group_id, server_id, user_id, addit)
+                      VALUES (?, ?, ?, 0)`,
+                replacements: [Number(currentGroupId), serverIdNum, Number(uid)]
+            });
         }
     }
 
@@ -389,43 +396,47 @@ function buildAclInsertStatements(serverId, channelId, payload, nextGroupId) {
         const grant = Number(acl.grant || 0) & ALL_PERMISSIONS;
         const deny = Number(acl.deny || 0) & ALL_PERMISSIONS;
 
-        statements.push(
-            `INSERT INTO acl (server_id, channel_id, priority, user_id, group_name, apply_here, apply_sub, grantpriv, revokepriv)
-             VALUES (
-                ${serverIdNum},
-                ${targetChannelId},
-                ${priority++},
-                ${acl.userId !== null && acl.userId !== undefined ? Number(acl.userId) : 'NULL'},
-                ${acl.group !== null && acl.group !== undefined ? sequelize.escape(acl.group) : 'NULL'},
-                ${acl.applyHere ? 1 : 0},
-                ${acl.applySubs ? 1 : 0},
-                ${grant},
-                ${deny}
-             )`
-        );
+        queries.push({
+            sql: `INSERT INTO acl (server_id, channel_id, priority, user_id, group_name, apply_here, apply_sub, grantpriv, revokepriv)
+                  VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+            replacements: [
+                serverIdNum,
+                targetChannelId,
+                priority++,
+                acl.userId !== null && acl.userId !== undefined ? Number(acl.userId) : null,
+                acl.group !== null && acl.group !== undefined ? acl.group : null,
+                acl.applyHere ? 1 : 0,
+                acl.applySubs ? 1 : 0,
+                grant,
+                deny
+            ]
+        });
     }
 
-    return statements;
+    return queries;
 }
 
 export async function loadAclState(serverId) {
     const [aclRows] = await sequelize.query(
         `SELECT server_id, channel_id, priority, user_id, group_name, apply_here, apply_sub, grantpriv, revokepriv
          FROM acl
-         WHERE server_id = ${Number(serverId)}
-         ORDER BY channel_id, priority`
+         WHERE server_id = ?
+         ORDER BY channel_id, priority`,
+        { replacements: [Number(serverId)] }
     );
 
     const [groupRows] = await sequelize.query(
         `SELECT group_id, server_id, name, channel_id, inherit, inheritable
          FROM "groups"
-         WHERE server_id = ${Number(serverId)}`
+         WHERE server_id = ?`,
+        { replacements: [Number(serverId)] }
     );
 
     const [groupMemberRows] = await sequelize.query(
         `SELECT group_id, server_id, user_id, addit
          FROM group_members
-         WHERE server_id = ${Number(serverId)}`
+         WHERE server_id = ?`,
+        { replacements: [Number(serverId)] }
     );
 
     const aclRowsByChannel = new Map();
@@ -571,15 +582,15 @@ export async function saveAclState(serverId, channelId, payload) {
         const [maxRows] = await sequelize.query(
             `SELECT COALESCE(MAX(group_id), 0) AS max_group_id
              FROM "groups"
-             WHERE server_id = ${serverIdNum}`,
-            { transaction }
+             WHERE server_id = ?`,
+            { replacements: [serverIdNum], transaction }
         );
 
         const nextGroupId = Number(maxRows?.[0]?.max_group_id || 0) + 1;
-        const statements = buildAclInsertStatements(serverIdNum, targetChannelId, payload, nextGroupId);
+        const queries = buildAclInsertQueries(serverIdNum, targetChannelId, payload, nextGroupId);
 
-        for (const statement of statements) {
-            await sequelize.query(statement, { transaction });
+        for (const { sql, replacements } of queries) {
+            await sequelize.query(sql, { replacements, transaction });
         }
     });
 }

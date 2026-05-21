@@ -173,8 +173,9 @@ async function hasOfficialBootstrap(serverId) {
     const [rows] = await sequelize.query(
         `SELECT COUNT(*) AS count
          FROM config
-         WHERE server_id = ${Number(serverId)}
-           AND key IN ('sslCert', 'sslKey')`
+         WHERE server_id = ?
+           AND key IN ('sslCert', 'sslKey')`,
+        { replacements: [Number(serverId)] }
     );
 
     return Number(rows?.[0]?.count || 0) >= 2;
@@ -210,8 +211,9 @@ async function loadServerCertConfig(serverId) {
     const [rows] = await sequelize.query(
         `SELECT key, value
          FROM config
-         WHERE server_id = ${Number(serverId)}
-           AND key IN ('sslCert', 'sslKey')`
+         WHERE server_id = ?
+           AND key IN ('sslCert', 'sslKey')`,
+        { replacements: [Number(serverId)] }
     );
 
     const config = new Map();
@@ -225,16 +227,18 @@ async function loadServerCertConfig(serverId) {
 async function storeServerCertConfig(serverId, certPath, keyPath) {
     await sequelize.query(
         `UPDATE config
-         SET value = ${sequelize.escape(certPath)}
-         WHERE server_id = ${Number(serverId)}
-           AND key = 'sslCert'`
+         SET value = ?
+         WHERE server_id = ?
+           AND key = 'sslCert'`,
+        { replacements: [certPath, Number(serverId)] }
     );
 
     await sequelize.query(
         `UPDATE config
-         SET value = ${sequelize.escape(keyPath)}
-         WHERE server_id = ${Number(serverId)}
-           AND key = 'sslKey'`
+         SET value = ?
+         WHERE server_id = ?
+           AND key = 'sslKey'`,
+        { replacements: [keyPath, Number(serverId)] }
     );
 }
 
@@ -248,10 +252,10 @@ async function syncConfigRows(serverId, config, transaction) {
     for (const row of rows) {
         await sequelize.query(
             `INSERT INTO config (server_id, key, value)
-             VALUES (${sequelize.escape(row.server_id)}, ${sequelize.escape(row.key)}, ${sequelize.escape(row.value)})
+             VALUES (?, ?, ?)
              ON CONFLICT(server_id, key)
              DO UPDATE SET value = excluded.value`,
-            { transaction }
+            { replacements: [row.server_id, row.key, row.value], transaction }
         );
     }
 }
@@ -259,13 +263,13 @@ async function syncConfigRows(serverId, config, transaction) {
 async function ensureSelfRegisterAcl(serverId, transaction) {
     await sequelize.query(
         `UPDATE acl
-         SET grantpriv = COALESCE(grantpriv, 0) | ${Number(524288)}
-         WHERE server_id = ${Number(serverId)}
+         SET grantpriv = COALESCE(grantpriv, 0) | ?
+         WHERE server_id = ?
            AND channel_id = 0
            AND group_name = 'auth'
            AND apply_here = 1
            AND apply_sub = 1`,
-        { transaction }
+        { replacements: [524288, Number(serverId)], transaction }
     );
 }
 
@@ -273,10 +277,10 @@ async function ensureSuperUser(serverId, transaction) {
     const [rows] = await sequelize.query(
         `SELECT server_id, user_id, name, pw, lastchannel, texture, last_active
          FROM users
-         WHERE server_id = ${Number(serverId)}
+         WHERE server_id = ?
           AND user_id = 0
          LIMIT 1`,
-        { transaction }
+        { replacements: [Number(serverId)], transaction }
     );
 
     const existingUser = rows?.[0] || null;
@@ -285,9 +289,9 @@ async function ensureSuperUser(serverId, transaction) {
             await sequelize.query(
                 `UPDATE users
                  SET name = 'SuperUser'
-                 WHERE server_id = ${Number(serverId)}
+                 WHERE server_id = ?
                    AND user_id = 0`,
-                { transaction }
+                { replacements: [Number(serverId)], transaction }
             );
         }
 
@@ -304,19 +308,17 @@ async function ensureSuperUser(serverId, transaction) {
         await sequelize.query(
             `UPDATE users
              SET name = 'SuperUser',
-                 pw = ${sequelize.escape(pwHash)},
-                 lastchannel = ${sequelize.escape(lastChannel)}
-             WHERE server_id = ${Number(serverId)}
+                 pw = ?,
+                 lastchannel = ?
+             WHERE server_id = ?
                AND user_id = 0`,
-            { transaction }
+            { replacements: [pwHash, lastChannel, Number(serverId)], transaction }
         );
     } else {
         await sequelize.query(
             `INSERT INTO users (server_id, user_id, name, pw, lastchannel, texture, last_active)
-             VALUES (${Number(serverId)}, 0, 'SuperUser', ${sequelize.escape(pwHash)}, ${sequelize.escape(
-                 lastChannel
-             )}, NULL, CURRENT_TIMESTAMP)`,
-            { transaction }
+             VALUES (?, 0, 'SuperUser', ?, ?, NULL, CURRENT_TIMESTAMP)`,
+            { replacements: [Number(serverId), pwHash, lastChannel], transaction }
         );
     }
 
