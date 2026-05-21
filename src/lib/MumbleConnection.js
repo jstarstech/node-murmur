@@ -116,6 +116,8 @@ class MumbleConnection extends EventEmitter {
         this.socket = new MumbleSocket(socket);
         this.Users = Users;
         this.state = 'connected';
+        this.createdAt = Date.now();
+        this.lastActivityAt = Date.now();
 
         socket.on('close', () => {
             this.disconnect();

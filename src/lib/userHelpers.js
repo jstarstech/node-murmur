@@ -147,6 +147,12 @@ function buildUserStatsPayload(
         payload.address = ipToBuffer(targetConnection?.socket?.socket?.remoteAddress || '');
     }
 
+    if (targetConnection) {
+        const now = Date.now();
+        payload.onlinesecs = Math.floor((now - (targetConnection.createdAt || now)) / 1000);
+        payload.idlesecs = Math.floor((now - (targetConnection.lastActivityAt || now)) / 1000);
+    }
+
     return payload;
 }
 
