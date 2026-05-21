@@ -36,6 +36,8 @@ import { setupVoice, setupUdpVoice } from './handlers/voice.js';
 
 let log = createLogger();
 const CELT_COMPAT_BITSTREAM = -2147483637;
+const activeServers = [];
+let shuttingDown = false;
 
 async function getServerIds() {
     const [rows] = await sequelize.query('SELECT server_id FROM servers ORDER BY server_id ASC');
@@ -380,7 +382,46 @@ async function startServer(serverId) {
         },
         `Server listening on ${serverListenAddress.address}:${serverListenAddress.port}`
     );
+
+    return { serverId, server, serverUdp, connectionsBySession, Users };
 }
+
+async function shutdown(signal) {
+    if (shuttingDown) return;
+    shuttingDown = true;
+
+    log.info(`Received ${signal}, shutting down gracefully...`);
+
+    for (const instance of activeServers) {
+        // Disconnect all clients before closing listeners
+        // (matches grumble's order — clean TCP close while listeners are still up)
+        for (const connection of instance.connectionsBySession.values()) {
+            if (connection && typeof connection.disconnect === 'function') {
+                connection.disconnect();
+            }
+        }
+
+        // Then close listeners (matches grumble's tlsl.Close() + udpconn.Close())
+        instance.serverUdp.close();
+        instance.server.close();
+    }
+
+    // Wait for pending async operations to drain, with 30s forced exit
+    // (matches grumble's netwg.Wait() + FreezeToFile() pattern)
+    await Promise.race([sequelize.close(), new Promise(resolve => setTimeout(resolve, 5000))]);
+
+    log.info('Shutdown complete');
+    process.exit(0);
+}
+
+process.on('SIGTERM', () => shutdown('SIGTERM'));
+process.on('SIGINT', () => shutdown('SIGINT'));
+
+setTimeout(() => {
+    if (shuttingDown) return;
+    log.error('Forced shutdown after timeout');
+    process.exit(1);
+}, 15000).unref();
 
 let bootstrap;
 try {
@@ -440,7 +481,8 @@ if (bootstrap.superUserPassword) {
 }
 
 try {
-    await Promise.all(serverIds.map(id => startServer(id)));
+    const instances = await Promise.all(serverIds.map(id => startServer(id)));
+    activeServers.push(...instances);
 } catch (e) {
     if (e?.code === 'EADDRINUSE') {
         log.error(e.message);

@@ -19,6 +19,8 @@ export default [
                 module: 'readonly',
                 process: 'readonly',
                 require: 'readonly',
+                setTimeout: 'readonly',
+                clearTimeout: 'readonly',
                 URL: 'readonly'
             }
         }
