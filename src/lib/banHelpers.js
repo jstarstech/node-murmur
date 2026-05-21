@@ -1,5 +1,3 @@
-import net from 'net';
-import { ipv6StringToBuffer } from './ipUtil.js';
 import { sequelize } from '../models/index.js';
 
 async function getBans(serverId) {
@@ -11,35 +9,6 @@ async function getBans(serverId) {
     );
 
     return rows;
-}
-
-function ipToBanBuffer(address) {
-    if (typeof address !== 'string' || address.length === 0) {
-        return Buffer.alloc(0);
-    }
-
-    const family = net.isIP(address);
-    if (family === 4) {
-        const octets = address.split('.').map(part => Number(part));
-        if (octets.length !== 4 || octets.some(value => !Number.isInteger(value) || value < 0 || value > 255)) {
-            return Buffer.alloc(0);
-        }
-
-        const buffer = Buffer.alloc(16);
-        buffer[10] = 0xff;
-        buffer[11] = 0xff;
-        buffer[12] = octets[0];
-        buffer[13] = octets[1];
-        buffer[14] = octets[2];
-        buffer[15] = octets[3];
-        return buffer;
-    }
-
-    if (family === 6) {
-        return ipv6StringToBuffer(address);
-    }
-
-    return Buffer.alloc(0);
 }
 
 async function storeBanEntry(serverId, entry) {
@@ -72,4 +41,4 @@ function sendBanList(connection, bans) {
     });
 }
 
-export { getBans, ipToBanBuffer, storeBanEntry, sendBanList };
+export { getBans, storeBanEntry, sendBanList };

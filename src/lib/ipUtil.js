@@ -105,4 +105,4 @@ function ipToBuffer(address) {
     return Buffer.alloc(0);
 }
 
-export { ipv6StringToBuffer, ipToBuffer };
+export { ipToBuffer };

@@ -34,7 +34,8 @@ import {
     sendQueryUsers,
     buildUsernameValidator
 } from './lib/userHelpers.js';
-import { getBans, ipToBanBuffer, storeBanEntry, sendBanList } from './lib/banHelpers.js';
+import { getBans, storeBanEntry, sendBanList } from './lib/banHelpers.js';
+import { ipToBuffer } from './lib/ipUtil.js';
 import { collectVoiceTargetRecipients } from './lib/voiceRouting.js';
 import { buildContextActionModifyPayload, buildCodecVersionPayload } from './lib/miscPayloads.js';
 import { isActiveConnectionState, isVersionNegotiatedState } from './lib/stateHelpers.js';
@@ -972,7 +973,7 @@ async function startServer(server_id) {
             if (m.ban) {
                 const remoteAddress = targetConnection.socket?.socket?.remoteAddress || '';
                 const banRow = {
-                    address: ipToBanBuffer(remoteAddress),
+                    address: ipToBuffer(remoteAddress),
                     mask: 128,
                     name: targetUser.name || undefined,
                     hash: targetUser.hash || undefined,
