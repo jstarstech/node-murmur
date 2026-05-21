@@ -92,22 +92,25 @@ export function setupBan({ connection, state, ctx: { serverId, channels, aclStat
             return;
         }
 
-        await sequelize.query(`DELETE FROM bans WHERE server_id = ${Number(serverId)}`);
+        await sequelize.query('DELETE FROM bans WHERE server_id = ?', { replacements: [serverId] });
 
         if (Array.isArray(m.bans) && m.bans.length > 0) {
             for (const entry of m.bans) {
                 await sequelize.query(
                     `INSERT INTO bans (server_id, base, mask, name, hash, reason, start, duration)
-                     VALUES (
-                        ${Number(serverId)},
-                        ${sequelize.escape(entry.address || Buffer.alloc(0))},
-                        ${sequelize.escape(Number(entry.mask || 0))},
-                        ${sequelize.escape(entry.name || null)},
-                        ${sequelize.escape(entry.hash || null)},
-                        ${sequelize.escape(entry.reason || null)},
-                        ${sequelize.escape(entry.start ? new Date(entry.start) : null)},
-                        ${sequelize.escape(Number(entry.duration || 0))}
-                     )`
+                     VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+                    {
+                        replacements: [
+                            serverId,
+                            entry.address || Buffer.alloc(0),
+                            Number(entry.mask || 0),
+                            entry.name || null,
+                            entry.hash || null,
+                            entry.reason || null,
+                            entry.start ? new Date(entry.start) : null,
+                            Number(entry.duration || 0)
+                        ]
+                    }
                 );
             }
         }
