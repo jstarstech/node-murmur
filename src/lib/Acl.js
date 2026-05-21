@@ -112,11 +112,11 @@ const resolveGroupRecursive = (groupName, channelId, channels, aclState) => {
 
     if (group) {
         inheritable = group.inheritable;
-        for (const uid of group.remove) {
-            members.delete(uid);
-        }
         for (const uid of group.add) {
             members.add(uid);
+        }
+        for (const uid of group.remove) {
+            members.delete(uid);
         }
     }
 
@@ -488,11 +488,13 @@ export async function loadAclState(serverId) {
 
 export function computePermissions(channelId, user, channels, aclState) {
     if (user?.userId === 0) {
-        return ALL_PERMISSIONS;
+        return ALL_PERMISSIONS & ~PERMISSIONS.Speak & ~PERMISSIONS.Whisper;
     }
 
     const path = getChannelPath(channelId, channels);
     let granted = DEFAULT_PERMISSIONS;
+    let traverse = true;
+    let write = false;
 
     for (const channel of path) {
         if (!bool(channel.inheritacl)) {
@@ -502,10 +504,6 @@ export function computePermissions(channelId, user, channels, aclState) {
         const aclRows = aclState.aclRowsByChannel.get(channel.channel_id) || [];
 
         for (const acl of aclRows) {
-            if (!aclApplies(acl, channelId, channel.channel_id)) {
-                continue;
-            }
-
             const matchesUser = acl.userId != null && Number(acl.userId) === Number(user.userId);
             const matchesGroup =
                 acl.groupName !== null &&
@@ -516,9 +514,25 @@ export function computePermissions(channelId, user, channels, aclState) {
                 continue;
             }
 
-            granted |= acl.grant;
-            granted &= ~acl.deny;
+            if (acl.grant & PERMISSIONS.Traverse) traverse = true;
+            if (acl.deny & PERMISSIONS.Traverse) traverse = false;
+            if (acl.grant & PERMISSIONS.Write) write = true;
+            if (acl.deny & PERMISSIONS.Write) write = false;
+
+            if (aclApplies(acl, channelId, channel.channel_id)) {
+                granted |= acl.grant;
+                granted &= ~acl.deny;
+            }
         }
+
+        if (!traverse && !write) {
+            granted = 0;
+            break;
+        }
+    }
+
+    if (granted & PERMISSIONS.Write) {
+        granted |= ALL_PERMISSIONS & ~PERMISSIONS.Speak & ~PERMISSIONS.Whisper;
     }
 
     return granted;

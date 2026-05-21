@@ -104,11 +104,12 @@ test('ALL_PERMISSIONS includes all flags', () => {
 
 // ---- computePermissions ----
 
-test('SuperUser gets ALL_PERMISSIONS', () => {
+test('SuperUser gets all permissions except Speak and Whisper', () => {
     const channels = makeChannels([{ channel_id: 1, name: 'root' }]);
     const aclState = makeAclState();
     const su = makeUser({ userId: 0, session: 0 });
-    assert.equal(computePermissions(1, su, channels, aclState), ALL_PERMISSIONS);
+    const perms = computePermissions(1, su, channels, aclState);
+    assert.equal(perms, ALL_PERMISSIONS & ~S & ~W);
 });
 
 test('no ACLs returns DEFAULT_PERMISSIONS', () => {
@@ -118,12 +119,13 @@ test('no ACLs returns DEFAULT_PERMISSIONS', () => {
     assert.equal(computePermissions(1, user, channels, aclState), DEFAULT_PERMISSIONS);
 });
 
-test('SubUser does not get ALL_PERMISSIONS', () => {
+test('SubUser excludes Speak and Whisper', () => {
     const channels = makeChannels([{ channel_id: 1, name: 'root' }]);
     const aclState = makeAclState();
     const user = makeUser({ userId: 0, session: null });
     // userId=0 with no session — still SuperUser per code
-    assert.equal(computePermissions(1, user, channels, aclState), ALL_PERMISSIONS);
+    const perms = computePermissions(1, user, channels, aclState);
+    assert.equal(perms, ALL_PERMISSIONS & ~S & ~W);
 });
 
 test('direct user ACL grants Write permission', () => {
@@ -452,6 +454,88 @@ test('ACL granted bit is preserved when also granting a different bit', () => {
     const perms = computePermissions(1, user, channels, aclState);
     assert.ok(perms & Wr);
     assert.ok(perms & M);
+});
+
+test('Write implies all permissions except Speak and Whisper', () => {
+    const channels = makeChannels([{ channel_id: 1, name: 'root' }]);
+    // Create an ACL that ONLY grants Write with no defaults via inheritacl=0
+    const acls = makeAclRowsByChannel({
+        2: [{ channelId: 2, userId: 1, groupName: null, applyHere: true, applySub: false, grant: Wr, deny: T | E | S | W | TM }]
+    });
+    const aclState = makeAclState(acls);
+    const user = makeUser();
+    const perms = computePermissions(2, user, makeChannels([
+        { channel_id: 1, name: 'root' },
+        { channel_id: 2, name: 'child', parent_id: 1, inheritacl: 0 }
+    ]), aclState);
+    // Write implies all non-Speak/non-Whisper permissions
+    assert.ok(perms & PERMISSIONS.MuteDeafen);
+    assert.ok(perms & PERMISSIONS.Move);
+    assert.ok(perms & PERMISSIONS.Kick);
+    assert.ok(perms & PERMISSIONS.Ban);
+    assert.ok(perms & PERMISSIONS.Register);
+    assert.ok(perms & PERMISSIONS.MakeChannel);
+    // Speak and Whisper are NOT implied by Write
+    assert.ok(!(perms & S));
+    assert.ok(!(perms & W));
+});
+
+test('denied Traverse strips all permissions when Write not granted', () => {
+    const channels = makeChannels([{ channel_id: 1, name: 'root' }]);
+    // ACL on channel 1 denies Traverse and appliesHere
+    const acls = makeAclRowsByChannel({
+        1: [{ channelId: 1, userId: 1, groupName: null, applyHere: true, applySub: false, grant: 0, deny: T }]
+    });
+    const aclState = makeAclState(acls);
+    const user = makeUser();
+    const perms = computePermissions(1, user, channels, aclState);
+    // Traverse denied + no Write → all permissions stripped
+    assert.equal(perms, 0);
+});
+
+test('Traverse can be re-granted in same channel after denial', () => {
+    const channels = makeChannels([{ channel_id: 1, name: 'root' }]);
+    const acls = makeAclRowsByChannel({
+        1: [
+            { channelId: 1, userId: 1, groupName: null, applyHere: true, applySub: false, grant: 0, deny: T },
+            { channelId: 1, userId: 1, groupName: null, applyHere: true, applySub: false, grant: T, deny: 0 }
+        ]
+    });
+    const aclState = makeAclState(acls);
+    const user = makeUser();
+    const perms = computePermissions(1, user, channels, aclState);
+    // Traverse denied then re-granted within same channel → permissions preserved
+    assert.equal(perms, DEFAULT_PERMISSIONS);
+});
+
+test('ancestor Traverse denial strips all before child is processed', () => {
+    const channels = makeChannels([
+        { channel_id: 1, name: 'parent' },
+        { channel_id: 2, name: 'child', parent_id: 1 }
+    ]);
+    const acls = makeAclRowsByChannel({
+        1: [{ channelId: 1, userId: 1, groupName: null, applyHere: true, applySub: true, grant: 0, deny: T }],
+        2: [{ channelId: 2, userId: 1, groupName: null, applyHere: true, applySub: false, grant: T, deny: 0 }]
+    });
+    const aclState = makeAclState(acls);
+    const user = makeUser();
+    const perms = computePermissions(2, user, channels, aclState);
+    // per-context strip: ancestor denies traverse → loop breaks before child
+    assert.equal(perms, 0);
+});
+
+test('group add then remove order — same user in both, remove wins', () => {
+    const channels = makeChannels([{ channel_id: 1, name: 'root' }]);
+    const acls = makeAclRowsByChannel({
+        1: [{ channelId: 1, userId: null, groupName: 'admin', applyHere: true, applySub: false, grant: Wr, deny: 0 }]
+    });
+    const groups = makeGroupsByChannel({
+        1: { admin: { add: [1], remove: [1] } }
+    });
+    const aclState = makeAclState(acls, groups);
+    // Same user in both add and remove: remove wins (add-then-remove order)
+    const user = makeUser({ userId: 1 });
+    assert.ok(!(computePermissions(1, user, channels, aclState) & Wr));
 });
 
 test('ACL in subchannel does not affect parent channel', () => {

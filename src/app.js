@@ -333,20 +333,20 @@ async function shutdown(signal) {
 
     for (const instance of activeServers) {
         // Disconnect all clients before closing listeners
-        // (matches grumble's order — clean TCP close while listeners are still up)
+        // clean TCP close while listeners are still up
         for (const connection of instance.connectionsBySession.values()) {
             if (connection && typeof connection.disconnect === 'function') {
                 connection.disconnect();
             }
         }
 
-        // Then close listeners (matches grumble's tlsl.Close() + udpconn.Close())
+        // Then close listeners
         instance.serverUdp.close();
         instance.server.close();
     }
 
     // Wait for pending async operations to drain, with 30s forced exit
-    // (matches grumble's netwg.Wait() + FreezeToFile() pattern)
+    // wait for pending work to complete
     await Promise.race([sequelize.close(), new Promise(resolve => setTimeout(resolve, 5000))]);
 
     log.info('Shutdown complete');

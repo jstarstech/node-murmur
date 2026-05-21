@@ -129,10 +129,10 @@ test('collectVoiceTargetRecipients excludes source session from direct recipient
     assert.equal(result.directRecipients.size, 0);
 });
 
-test('collectVoiceTargetRecipients uses SuperUser for channel whisper (userId=0 grants ALL_PERMISSIONS)', () => {
+test('collectVoiceTargetRecipients uses regular user for channel whisper (DEFAULT includes Whisper)', () => {
     const channels = makeChannels([{ channel_id: 1, name: 'root' }]);
     const users = makeUsers([
-        { userId: 0, session: 100, channelId: 1 },
+        { userId: 1, session: 100, channelId: 1 },
         { userId: 2, session: 200, channelId: 1, selfDeaf: true },
         { userId: 3, session: 300, channelId: 1 }
     ]);
@@ -140,7 +140,7 @@ test('collectVoiceTargetRecipients uses SuperUser for channel whisper (userId=0 
 
     const result = collectVoiceTargetRecipients(
         100,
-        users.users[0],
+        users.users[1],
         { channels: [{ id: 1, links: false, subChannels: false, onlyGroup: '' }], sessions: new Set() },
         channels,
         makeAclState(),
