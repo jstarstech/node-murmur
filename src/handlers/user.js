@@ -14,7 +14,7 @@ import {
 import { ipToBuffer } from '../lib/ipUtil.js';
 import { buildContextActionModifyPayload, buildCodecVersionPayload } from '../lib/miscPayloads.js';
 import { isActiveConnectionState, isVersionNegotiatedState } from '../lib/stateHelpers.js';
-import { storeBanEntry } from '../lib/banHelpers.js';
+import { storeBanEntry, isBanned } from '../lib/banHelpers.js';
 import RegisteredUsers from '../models/users.js';
 import UserInfo from '../models/user_info.js';
 
@@ -598,6 +598,18 @@ export function setupUser({
             const reject = {
                 type: 7,
                 reason: 'No certificate'
+            };
+            logRejectedConnection(m.username, reject);
+            connection.sendMessage('Reject', reject);
+            connection.disconnect();
+            return;
+        }
+
+        const banned = certificateHash ? await isBanned(serverId, null, certificateHash) : null;
+        if (banned) {
+            const reject = {
+                type: 1,
+                reason: banned.reason || 'Banned'
             };
             logRejectedConnection(m.username, reject);
             connection.sendMessage('Reject', reject);

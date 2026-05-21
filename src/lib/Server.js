@@ -22,6 +22,8 @@ import { createVoiceSender } from './voiceSender.js';
 import Config from '../models/config.js';
 import { resolveConfigFileValue } from './bootstrapDatabase.js';
 import { DEFAULT_SERVER_CONFIG, coerceServerConfigValue } from './serverConfig.js';
+import { isBanned } from './banHelpers.js';
+import { ipToBuffer } from './ipUtil.js';
 import { setupConnection } from '../handlers/connection.js';
 import { setupUser } from '../handlers/user.js';
 import { setupChannel, setupTextMessage } from '../handlers/channel.js';
@@ -278,6 +280,21 @@ export class Server {
         connection.clientOSVersion = null;
         connection.lastCryptResync = 0;
         connection.state = 'connected';
+
+        const remoteAddress = socket.remoteAddress || '';
+        const addressBuf = ipToBuffer(remoteAddress);
+        if (addressBuf.length > 0) {
+            isBanned(this.serverId, addressBuf).then(banned => {
+                if (banned) {
+                    this._log.info(`Rejected banned connection from ${remoteAddress}`);
+                    connection.sendMessage('Reject', {
+                        type: 1,
+                        reason: banned.reason || 'Banned'
+                    });
+                    connection.disconnect();
+                }
+            });
+        }
 
         const connCtx = { connection, socket, state, ctx: this._ctx };
 
