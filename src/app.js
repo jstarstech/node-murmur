@@ -13,13 +13,12 @@ import {
     buildChannelNameValidator
 } from './lib/channelHelpers.js';
 import { buildUsernameValidator } from './lib/userHelpers.js';
-import { getVoiceTarget } from './lib/voice.js';
-import { collectVoiceTargetRecipients } from './lib/voiceRouting.js';
 import { buildContextActionModifyPayload } from './lib/miscPayloads.js';
 import { loadAclState } from './lib/Acl.js';
 import { isActiveConnectionState } from './lib/stateHelpers.js';
 import { createChannelOperations } from './lib/channelOperations.js';
 import { createCodecNegotiation } from './lib/codecNegotiation.js';
+import { createVoiceSender } from './lib/voiceSender.js';
 import Config from './models/config.js';
 import { sequelize } from './models/index.js';
 import { ensureDatabaseReady, resolveConfigFileValue } from './lib/bootstrapDatabase.js';
@@ -117,76 +116,6 @@ async function startServer(serverId) {
         }
     }
 
-    function sendVoicePacket(connection, rawPacket, fallbackRinfo) {
-        if (connection?.cryptState && connection.udpaddr) {
-            try {
-                const encrypted = connection.cryptState.encrypt(rawPacket);
-                const { address, port } = connection.udpaddr;
-                udpAddrToConnection.set(getUdpAddrKey(connection.udpaddr), connection);
-                serverUdp.send(encrypted, port, address, err => {
-                    if (err) log.error({ err }, 'Failed to send voice packet');
-                });
-                return;
-            } catch (err) {
-                log.error({ err }, 'Failed to encrypt voice packet');
-            }
-        }
-        if (connection && typeof connection.sendMessage === 'function') {
-            connection.sendMessage('UDPTunnel', rawPacket);
-            return;
-        }
-        if (fallbackRinfo && serverUdp) {
-            serverUdp.send(rawPacket, fallbackRinfo.port, fallbackRinfo.address, err => {
-                if (err) log.error({ err }, 'Failed to send fallback voice packet');
-            });
-        }
-    }
-
-    function broadcastVoicePacket(rawPacket, sourceSession) {
-        const sourceChannelId = Users.sessionToChannels[sourceSession];
-        if (sourceChannelId === undefined || sourceChannelId === null) return;
-
-        const target = getVoiceTarget(rawPacket);
-        const sourceConnection = connectionsBySession.get(sourceSession);
-        const sourceUser = findUserBySession(sourceSession);
-        if (!sourceConnection || !sourceUser) return;
-
-        if (target === 31) {
-            if (sourceConnection) sendVoicePacket(sourceConnection, rawPacket);
-            return;
-        }
-
-        if (target > 0 && target < 31) {
-            const targetDefinition = sourceConnection.voiceTargets?.get(target);
-            if (!targetDefinition) return;
-
-            const { directRecipients, channelRecipients } = collectVoiceTargetRecipients(
-                sourceSession,
-                sourceUser,
-                targetDefinition,
-                channels,
-                aclState,
-                Users,
-                connectionsBySession
-            );
-
-            for (const recipient of channelRecipients.values()) sendVoicePacket(recipient, rawPacket);
-            for (const [session, recipient] of directRecipients.entries()) {
-                if (!channelRecipients.has(session)) sendVoicePacket(recipient, rawPacket);
-            }
-            return;
-        }
-
-        for (const user of Object.values(Users.users)) {
-            if (!user || user.session === undefined || user.session === null) continue;
-            if (user.session === sourceSession) continue;
-            if (user.channelId !== sourceChannelId) continue;
-            if (user.selfDeaf === true) continue;
-            const targetConnection = connectionsBySession.get(user.session);
-            if (targetConnection) sendVoicePacket(targetConnection, rawPacket);
-        }
-    }
-
     function requestCryptResync(connection) {
         if (!connection?.cryptState || !connection.cryptState.shouldRequestResync()) return;
         if (connection.lastCryptResync && Date.now() / 1000 - connection.lastCryptResync < 5) return;
@@ -217,6 +146,19 @@ async function startServer(serverId) {
         codecState,
         log
     });
+
+    const voiceSender = createVoiceSender({
+        channels,
+        aclState,
+        Users,
+        connectionsBySession,
+        udpAddrToConnection,
+        getUdpAddrKey,
+        findUserBySession,
+        log
+    });
+
+    const { sendVoicePacket, broadcastVoicePacket } = voiceSender;
 
     const sharedCtx = {
         log,
@@ -350,15 +292,12 @@ async function startServer(serverId) {
     }
 
     sharedCtx.serverUdp = serverUdp;
+    voiceSender.setServerUdp(serverUdp);
 
     setupUdpVoice({
         ctx: {
             ...sharedCtx,
-            getLiveUserCount,
-            sendVoicePacket,
-            broadcastVoicePacket,
-            requestCryptResync,
-            findUserBySession
+            getLiveUserCount
         }
     });
 
