@@ -1,5 +1,6 @@
 import { getVoiceTarget } from './voice.js';
 import { collectVoiceTargetRecipients } from './voiceRouting.js';
+import { computePermissions, PERMISSIONS } from './Acl.js';
 
 export function createVoiceSender({
     channels,
@@ -74,6 +75,11 @@ export function createVoiceSender({
             for (const [session, recipient] of directRecipients.entries()) {
                 if (!channelRecipients.has(session)) sendVoicePacket(recipient, rawPacket);
             }
+            return;
+        }
+
+        const sourcePermissions = computePermissions(Number(sourceChannelId), sourceUser, channels, aclState);
+        if ((sourcePermissions & PERMISSIONS.Speak) !== PERMISSIONS.Speak) {
             return;
         }
 
