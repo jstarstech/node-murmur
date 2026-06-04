@@ -9,6 +9,10 @@ function sha1Buffer(value) {
     return crypto.createHash('sha1').update(value).digest();
 }
 
+function timingSafeStringEqual(a, b) {
+    return crypto.timingSafeEqual(sha1Buffer(String(a)), sha1Buffer(String(b)));
+}
+
 class User extends EventEmitter {
     users = {};
 
@@ -24,6 +28,11 @@ class User extends EventEmitter {
         this.serverId = Number(this.options.serverId || 1);
         this.sessionPool = this.options.sessionPool || new SessionPool(this.options.maxUsers);
         this.id = 100;
+
+        // One connection registers several listeners (broadcast, broadcast_audio,
+        // ...); with up to `users` concurrent clients the default cap of 10 would
+        // emit spurious MaxListenersExceededWarning. Lift it.
+        this.setMaxListeners(0);
     }
 
     async _persistLastChannel(user) {
@@ -127,7 +136,12 @@ class User extends EventEmitter {
             }
         }
 
-        if (!matchedUser && !rejectAuth && serverPassword && user_data.password !== serverPassword) {
+        if (
+            !matchedUser &&
+            !rejectAuth &&
+            serverPassword &&
+            !timingSafeStringEqual(user_data.password, serverPassword)
+        ) {
             rejectAuth = {
                 type: 4,
                 reason: 'Wrong password'
