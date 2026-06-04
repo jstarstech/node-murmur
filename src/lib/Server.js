@@ -179,7 +179,12 @@ export class Server {
                 requestCert: true,
                 rejectUnauthorized: false
             },
-            socket => this._onConnection(socket)
+            socket => {
+                this._onConnection(socket).catch(err => {
+                    this._log.error({ err }, 'Failed to handle new connection');
+                    socket.destroy();
+                });
+            }
         );
     }
 
@@ -241,7 +246,7 @@ export class Server {
         );
     }
 
-    _onConnection(socket) {
+    async _onConnection(socket) {
         socket.setKeepAlive(true, 10000);
         socket.setTimeout(10000);
         socket.setNoDelay(true);
@@ -284,16 +289,25 @@ export class Server {
         const remoteAddress = socket.remoteAddress || '';
         const addressBuf = ipToBuffer(remoteAddress);
         if (addressBuf.length > 0) {
-            isBanned(this.serverId, addressBuf).then(banned => {
-                if (banned) {
-                    this._log.info(`Rejected banned connection from ${remoteAddress}`);
-                    connection.sendMessage('Reject', {
-                        type: 1,
-                        reason: banned.reason || 'Banned'
-                    });
-                    connection.disconnect();
-                }
-            });
+            let banned = null;
+            try {
+                banned = await isBanned(this.serverId, addressBuf);
+            } catch (err) {
+                this._log.error({ err }, 'Failed to check ban list');
+            }
+
+            if (banned) {
+                this._log.info(`Rejected banned connection from ${remoteAddress}`);
+                connection.sendMessage('Reject', {
+                    type: 1,
+                    reason: banned.reason || 'Banned'
+                });
+                connection.disconnect();
+                // Handlers (and the disconnect handler that reclaims the session)
+                // are not wired yet, so release the session id manually.
+                this._Users.releaseSession(sessionId);
+                return;
+            }
         }
 
         const connCtx = { connection, socket, state, ctx: this._ctx };
