@@ -56,7 +56,9 @@ const groupMatchesBuiltin = (name, user, currentChannelId, channels) => {
     }
 
     if (name === 'auth') {
-        return user.session !== null && user.session !== undefined;
+        // Authenticated == registered (has a user account), matching Murmur/grumble
+        // semantics. Unregistered guests must not match @auth.
+        return Number.isInteger(user.userId) && user.userId >= 0;
     }
 
     if (name === 'strong') {

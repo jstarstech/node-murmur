@@ -220,18 +220,19 @@ test('group "out" grants only to users in different channel', () => {
     assert.ok(computePermissions(1, userOut, channels, aclState) & Wr);
 });
 
-test('group "auth" grants to authenticated users (with session)', () => {
+test('group "auth" grants to registered users only, not guests', () => {
     const channels = makeChannels([{ channel_id: 1, name: 'root' }]);
     const acls = makeAclRowsByChannel({
         1: [{ channelId: 1, userId: null, groupName: 'auth', applyHere: true, applySub: false, grant: Wr, deny: 0 }]
     });
     const aclState = makeAclState(acls);
 
-    const authed = makeUser({ session: 1 });
-    assert.ok(computePermissions(1, authed, channels, aclState) & Wr);
+    const registered = makeUser({ userId: 5 });
+    assert.ok(computePermissions(1, registered, channels, aclState) & Wr);
 
-    const unauthed = makeUser({ session: null });
-    assert.ok(!(computePermissions(1, unauthed, channels, aclState) & Wr));
+    // Unregistered guest (no user account) — has a session but userId is null.
+    const guest = makeUser({ userId: null, session: 7 });
+    assert.ok(!(computePermissions(1, guest, channels, aclState) & Wr));
 });
 
 test('group "strong" grants to users with certificate hash', () => {
