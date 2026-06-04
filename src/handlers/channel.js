@@ -147,6 +147,17 @@ export function setupTextMessage({ connection, state, ctx: { serverConfig, chann
             return;
         }
 
+        if (
+            serverConfig.imagemessagelength > 0 &&
+            util.measureEmbeddedImageBytes(processedMessage) > serverConfig.imagemessagelength
+        ) {
+            connection.sendMessage('PermissionDenied', {
+                type: 1,
+                reason: 'Image too big'
+            });
+            return;
+        }
+
         if (processedMessage.length === 0) {
             return;
         }
