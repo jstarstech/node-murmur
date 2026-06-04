@@ -8,7 +8,11 @@ import {
 } from '../lib/Acl.js';
 import { sendQueryUsers } from '../lib/userHelpers.js';
 
-export function setupAcl({ connection, state, ctx: { log, channels, aclState, Users, channelOps, refreshAclState } }) {
+export function setupAcl({
+    connection,
+    state,
+    ctx: { log, serverId, channels, aclState, Users, channelOps, refreshAclState }
+}) {
     connection.on('permissionQuery', m => {
         if (connection.state !== 'ready') {
             return;
@@ -54,17 +58,17 @@ export function setupAcl({ connection, state, ctx: { log, channels, aclState, Us
 
         if (m.query) {
             connection.sendMessage('ACL', buildAclResponse(requestedChannelId, channels, aclState));
-            sendQueryUsers(connection, 1, { ids: collectAclUserIds(requestedChannelId, channels, aclState) }).catch(
-                err => {
-                    log.error({ err }, 'Failed to resolve ACL query users');
-                }
-            );
+            sendQueryUsers(connection, serverId, {
+                ids: collectAclUserIds(requestedChannelId, channels, aclState)
+            }).catch(err => {
+                log.error({ err }, 'Failed to resolve ACL query users');
+            });
             return;
         }
 
-        saveAclState(1, requestedChannelId, m)
+        saveAclState(serverId, requestedChannelId, m)
             .then(async () => {
-                const refreshedAclState = await loadAclState(1);
+                const refreshedAclState = await loadAclState(serverId);
                 refreshAclState(refreshedAclState);
 
                 if (channels[requestedChannelId]) {
