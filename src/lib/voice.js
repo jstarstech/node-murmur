@@ -29,7 +29,21 @@ export function rebuildVoicePacket(sessionId, data) {
         return null;
     }
 
-    const sequence = util.fromVarint(data.subarray(1));
+    if (data.length < 2) {
+        return null;
+    }
+
+    let sequence;
+    try {
+        sequence = util.fromVarint(data.subarray(1));
+    } catch {
+        return null;
+    }
+
+    if (1 + sequence.length > data.length) {
+        return null;
+    }
+
     const packet = data.subarray(1 + sequence.length);
     const sequenceVarint = util.toVarint(sequence.value);
     const sessionVarint = util.toVarint(sessionId);

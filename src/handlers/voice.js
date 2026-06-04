@@ -122,20 +122,24 @@ export function setupUdpVoice({
         matchedConnection.udpaddr = rinfo;
         udpAddrToConnection.set(addrKey, matchedConnection);
 
-        const kind = getVoiceKind(plain);
+        try {
+            const kind = getVoiceKind(plain);
 
-        if (kind === 1) {
+            if (kind === 1) {
+                matchedConnection.lastActivityAt = Date.now();
+                sendVoicePacket(matchedConnection, plain, rinfo);
+                return;
+            }
+
             matchedConnection.lastActivityAt = Date.now();
-            sendVoicePacket(matchedConnection, plain, rinfo);
-            return;
-        }
+            const voicePacket = rebuildVoicePacket(matchedConnection.sessionId, plain);
+            if (!voicePacket) {
+                return;
+            }
 
-        matchedConnection.lastActivityAt = Date.now();
-        const voicePacket = rebuildVoicePacket(matchedConnection.sessionId, plain);
-        if (!voicePacket) {
-            return;
+            broadcastVoicePacket(voicePacket, matchedConnection.sessionId);
+        } catch (err) {
+            log.error({ err }, 'Failed to process voice packet');
         }
-
-        broadcastVoicePacket(voicePacket, matchedConnection.sessionId);
     });
 }
