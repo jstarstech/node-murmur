@@ -111,6 +111,26 @@ test('collectVoiceTargetRecipients includes direct session recipients', () => {
     assert.equal(result.channelRecipients.size, 0);
 });
 
+test('collectVoiceTargetRecipients skips self-deafened direct session recipients', () => {
+    const channels = makeChannels([{ channel_id: 1, name: 'root' }]);
+    const users = makeUsers([
+        { userId: 1, session: 100, channelId: 1 },
+        { userId: 2, session: 200, channelId: 1, selfDeaf: true }
+    ]);
+    const connections = makeConnections([200]);
+
+    const result = collectVoiceTargetRecipients(
+        100,
+        users.users[1],
+        { channels: [], sessions: new Set([200]) },
+        channels,
+        makeAclState(),
+        users,
+        connections
+    );
+    assert.equal(result.directRecipients.size, 0);
+});
+
 test('collectVoiceTargetRecipients excludes source session from direct recipients', () => {
     const users = makeUsers([
         { userId: 1, session: 100, channelId: 1 }

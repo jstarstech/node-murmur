@@ -104,6 +104,11 @@ function collectVoiceTargetRecipients(
             continue;
         }
 
+        const targetUser = Object.values(Users.users).find(user => user && user.session === targetSession);
+        if (targetUser?.selfDeaf === true) {
+            continue;
+        }
+
         if (!channelRecipients.has(targetSession)) {
             directRecipients.set(targetSession, targetConnection);
         }
