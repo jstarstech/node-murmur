@@ -46,7 +46,7 @@ const getChannelPath = (channelId, channels) => {
     return path;
 };
 
-const groupMatchesBuiltin = (name, user, currentChannelId, channels) => {
+const groupMatchesBuiltin = (name, user, currentChannelId) => {
     if (name === 'none') {
         return false;
     }
@@ -73,21 +73,62 @@ const groupMatchesBuiltin = (name, user, currentChannelId, channels) => {
         return user.channelId !== currentChannelId;
     }
 
-    if (name === 'sub') {
-        let iter = channels[user.channelId];
-        while (iter) {
-            if (iter.parent_id === currentChannelId) {
-                return true;
-            }
-            if (iter.parent_id === null || iter.parent_id === undefined) {
-                break;
-            }
-            iter = channels[iter.parent_id];
-        }
+    return null;
+};
+
+const parseSubArg = value => {
+    const parsed = Number.parseInt(value, 10);
+    return Number.isNaN(parsed) ? 0 : parsed;
+};
+
+// Implements Murmur's parametrized @sub group: "sub" or "sub,offset,minDesc,maxDesc".
+// Mirrors Mumble's Group::appliesToUser (src/Group.cpp). contextChannelId is the
+// channel the group is evaluated against (ACL channel when prefixed with ~, otherwise
+// the target channel); targetChannelId is the channel permissions are computed for.
+const matchesSubGroup = (spec, user, contextChannelId, targetChannelId, channels) => {
+    const args = spec.slice(4).split(',');
+
+    let requiredChannelOffset = 0;
+    let minDescendantLevel = 1;
+    let maxDescendantLevel = 1000;
+
+    if (args.length >= 1 && args[0] !== '') {
+        requiredChannelOffset = parseSubArg(args[0]);
+    }
+    if (args.length >= 2 && args[1] !== '') {
+        minDescendantLevel = parseSubArg(args[1]);
+    }
+    if (args.length >= 3 && args[2] !== '') {
+        maxDescendantLevel = parseSubArg(args[2]);
+    }
+
+    // Channel hierarchies from root down to the user's channel and the target channel.
+    const homeHierarchy = getChannelPath(user.channelId, channels);
+    const currentHierarchy = getChannelPath(targetChannelId, channels);
+
+    let requiredIndex = currentHierarchy.findIndex(ch => Number(ch.channel_id) === Number(contextChannelId));
+    if (requiredIndex === -1) {
         return false;
     }
 
-    return null;
+    requiredIndex += requiredChannelOffset;
+    if (requiredIndex >= currentHierarchy.length) {
+        return false;
+    }
+    if (requiredIndex < 0) {
+        requiredIndex = 0;
+    }
+
+    const requiredChannel = currentHierarchy[requiredIndex];
+    if (!homeHierarchy.some(ch => Number(ch.channel_id) === Number(requiredChannel.channel_id))) {
+        return false;
+    }
+
+    const minDepth = requiredIndex + minDescendantLevel;
+    const maxDepth = requiredIndex + maxDescendantLevel;
+    const totalDepth = homeHierarchy.length - 1;
+
+    return totalDepth >= minDepth && totalDepth <= maxDepth;
 };
 
 const resolveCustomGroupMembers = (groupName, channelId, channels, aclState) => {
@@ -169,8 +210,10 @@ const groupMatches = (rawName, user, aclChannelId, currentChannelId, channels, a
             user.tokens.some(tokenValue => tokenValue.toLowerCase() === name.toLowerCase());
     } else if (hash) {
         ok = typeof user.hash === 'string' && user.hash.toLowerCase() === name.toLowerCase();
+    } else if (name === 'sub' || name.startsWith('sub,')) {
+        ok = matchesSubGroup(name, user, matchChannelId, currentChannelId, channels);
     } else {
-        const builtin = groupMatchesBuiltin(name, user, matchChannelId, channels);
+        const builtin = groupMatchesBuiltin(name, user, matchChannelId);
         if (builtin !== null) {
             ok = builtin;
         } else {

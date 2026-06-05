@@ -274,6 +274,48 @@ test('group "sub" grants to users in descendant channels', () => {
     assert.ok(computePermissions(1, inSibling, channels, aclState) & Wr);
 });
 
+test('parametrized "sub,offset,min,max" matches by descendant depth', () => {
+    const channels = makeChannels([
+        { channel_id: 1, name: 'root' },
+        { channel_id: 2, name: 'c2', parent_id: 1 },
+        { channel_id: 3, name: 'c3', parent_id: 2 },
+        { channel_id: 4, name: 'c4', parent_id: 3 }
+    ]);
+    const aclState = makeAclState();
+
+    const atDepth1 = makeUser({ channelId: 2 });
+    const atDepth2 = makeUser({ channelId: 3 });
+    const atDepth3 = makeUser({ channelId: 4 });
+
+    // ACL on channel 1, evaluated for channel 1. "sub,0,2,2" => exactly 2 levels below ch1.
+    assert.ok(isGroupMember('sub,0,2,2', atDepth2, 1, 1, channels, aclState));
+    assert.ok(!isGroupMember('sub,0,2,2', atDepth1, 1, 1, channels, aclState));
+    assert.ok(!isGroupMember('sub,0,2,2', atDepth3, 1, 1, channels, aclState));
+
+    // "sub,0,1,1" => direct children only.
+    assert.ok(isGroupMember('sub,0,1,1', atDepth1, 1, 1, channels, aclState));
+    assert.ok(!isGroupMember('sub,0,1,1', atDepth2, 1, 1, channels, aclState));
+
+    // Bare "sub" => any descendant; the channel itself is excluded.
+    assert.ok(isGroupMember('sub', atDepth3, 1, 1, channels, aclState));
+    assert.ok(!isGroupMember('sub', makeUser({ channelId: 1 }), 1, 1, channels, aclState));
+});
+
+test('parametrized "sub" offset shifts the base channel', () => {
+    const channels = makeChannels([
+        { channel_id: 1, name: 'root' },
+        { channel_id: 2, name: 'c2', parent_id: 1 },
+        { channel_id: 3, name: 'c3', parent_id: 2 }
+    ]);
+    const aclState = makeAclState();
+
+    // ACL evaluated for channel 2; "sub,-1,1,1" shifts base up to root (ch1),
+    // so a direct child of root (ch2) qualifies.
+    assert.ok(isGroupMember('sub,-1,1,1', makeUser({ channelId: 2 }), 2, 2, channels, aclState));
+    // Without the offset, base is ch2 and a user in ch2 is not below it.
+    assert.ok(!isGroupMember('sub,0,1,1', makeUser({ channelId: 2 }), 2, 2, channels, aclState));
+});
+
 test('custom group membership grants permissions', () => {
     const channels = makeChannels([{ channel_id: 1, name: 'root' }]);
     const acls = makeAclRowsByChannel({
