@@ -632,6 +632,7 @@ export function setupUser({
                 password: m.password,
                 opus: m.opus,
                 hash: certificateHash,
+                tokens: Array.isArray(m.tokens) ? m.tokens : [],
                 channelId: serverConfig.defaultchannel
             },
             { allocateSession: false }

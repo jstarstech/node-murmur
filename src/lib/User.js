@@ -80,7 +80,8 @@ class User extends EventEmitter {
             comment: null,
             pluginIdentity: '',
             pluginContext: [],
-            texture: Buffer.alloc(0)
+            texture: Buffer.alloc(0),
+            tokens: []
         };
         let rememberedChannel = null;
 
@@ -285,6 +286,10 @@ class User extends EventEmitter {
                 user_model.name = matchedUser.name;
             } else {
                 user_model.name = user_data.name;
+            }
+
+            if (Array.isArray(user_data.tokens)) {
+                user_model.tokens = user_data.tokens.filter(token => typeof token === 'string');
             }
 
             const id = this.id++;
