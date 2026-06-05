@@ -1,6 +1,6 @@
 {
   "name": "node-murmur",
-  "version": "0.1.4",
+  "version": "0.1.5",
   "description": "A Node.js implementation of a Mumble-compatible voice server",
   "keywords": [
     "mumble",
