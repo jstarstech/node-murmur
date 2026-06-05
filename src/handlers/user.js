@@ -517,6 +517,15 @@ export function setupUser({
                 updateUserState.texture = Buffer.alloc(0);
                 updateUserState.textureHash = Buffer.alloc(0);
             } else {
+                if (serverConfig.imagemessagelength > 0 && texture.length > serverConfig.imagemessagelength) {
+                    connection.sendMessage('PermissionDenied', {
+                        type: 1,
+                        session: actor.session,
+                        reason: 'Image too big'
+                    });
+                    return;
+                }
+
                 if (target.userId !== null && target.userId !== undefined) {
                     await RegisteredUsers.update(
                         {

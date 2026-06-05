@@ -35,6 +35,18 @@ test('buildChannelNameValidator uses default for empty pattern', () => {
     assert.ok(validate.test('general'));
 });
 
+test('buildChannelNameValidator enforces the configured max length', () => {
+    const validate = buildChannelNameValidator(undefined, 8);
+    assert.ok(validate.test('general'));
+    assert.ok(!validate.test('a'.repeat(9)));
+    assert.ok(validate.test('a'.repeat(8)));
+});
+
+test('buildChannelNameValidator treats max length 0 as unlimited', () => {
+    const validate = buildChannelNameValidator(undefined, 0);
+    assert.ok(validate.test('a'.repeat(5000)));
+});
+
 // ---- buildChannelStatePayload ----
 
 test('buildChannelStatePayload returns correct shape for minimal channel', () => {

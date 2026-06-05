@@ -76,7 +76,7 @@ export class Server {
             serverId: this.serverId,
             maxUsers: this._serverConfig.users || DEFAULT_SERVER_CONFIG.users,
             serverPassword: this._serverConfig.serverpassword,
-            usernameValidator: buildUsernameValidator(this._serverConfig.username)
+            usernameValidator: buildUsernameValidator(this._serverConfig.username, this._serverConfig.usernamemax)
         });
 
         this._createFactories();
@@ -140,7 +140,10 @@ export class Server {
             channels: this._channels,
             aclState: this._aclState,
             serverConfig: this._serverConfig,
-            channelNameValidator: buildChannelNameValidator(this._serverConfig.channelname),
+            channelNameValidator: buildChannelNameValidator(
+                this._serverConfig.channelname,
+                this._serverConfig.channelnamemax
+            ),
             sequelize: this._sequelize,
             Users: this._Users,
             refreshAclState: next => {

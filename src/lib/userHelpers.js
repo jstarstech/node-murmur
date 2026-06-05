@@ -337,13 +337,15 @@ async function sendQueryUsers(connection, serverId, query = {}) {
     connection.sendMessage('QueryUsers', { ids, names });
 }
 
-function buildUsernameValidator(pattern) {
+function buildUsernameValidator(pattern, maxLength = 512) {
     const source = typeof pattern === 'string' && pattern.length > 0 ? pattern : DEFAULT_USERNAME_PATTERN;
+    const max = Number.isInteger(maxLength) && maxLength > 0 ? maxLength : 0;
+    const lengthGuard = max > 0 ? `(?=[\\s\\S]{1,${max}}$)` : '';
 
     try {
-        return new RegExp(`^(?:${source})$`);
+        return new RegExp(`^${lengthGuard}(?:${source})$`);
     } catch {
-        return new RegExp(`^(?:${DEFAULT_USERNAME_PATTERN})$`);
+        return new RegExp(`^${lengthGuard}(?:${DEFAULT_USERNAME_PATTERN})$`);
     }
 }
 
