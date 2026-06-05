@@ -9,7 +9,7 @@ function sha1Buffer(value) {
     return crypto.createHash('sha1').update(value).digest();
 }
 
-function timingSafeStringEqual(a, b) {
+export function timingSafeStringEqual(a, b) {
     return crypto.timingSafeEqual(sha1Buffer(String(a)), sha1Buffer(String(b)));
 }
 
