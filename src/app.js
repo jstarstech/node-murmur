@@ -19,6 +19,11 @@ async function shutdown(signal) {
     if (shuttingDown) return;
     shuttingDown = true;
 
+    setTimeout(() => {
+        log.error('Forced shutdown after timeout');
+        process.exit(1);
+    }, 15000).unref();
+
     log.info(`Received ${signal}, shutting down gracefully...`);
 
     for (const server of activeServers) {
@@ -33,12 +38,6 @@ async function shutdown(signal) {
 
 process.on('SIGTERM', () => shutdown('SIGTERM'));
 process.on('SIGINT', () => shutdown('SIGINT'));
-
-setTimeout(() => {
-    if (shuttingDown) return;
-    log.error('Forced shutdown after timeout');
-    process.exit(1);
-}, 15000).unref();
 
 const bootstrap = await ensureDatabaseReady();
 
